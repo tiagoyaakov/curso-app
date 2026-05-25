@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useTheme } from "next-themes";
 import { Moon, Sun, Menu, ArrowRight } from "lucide-react";
 import { GithubIcon } from "@/components/icons/github";
@@ -49,23 +50,20 @@ export function Header() {
 
         {/* Logo + título do curso (2 linhas) */}
         <Link href="/" className="group flex items-center gap-3">
-          {/* Logo gradient maior */}
-          <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl gradient-bg shadow-lg shadow-violet-500/40 transition-all group-hover:shadow-violet-500/60 group-hover:scale-105">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              className="h-5 w-5 text-white"
-              aria-hidden
-            >
-              <path
-                d="M12 3 L20 7 L20 12 C20 16 16 19 12 21 C8 19 4 16 4 12 L4 7 Z"
-                fill="currentColor"
-              />
-            </svg>
-            {/* Glow pulse sutil */}
+          {/* Logo PNG (rede neural dentro de chevrons) */}
+          <span className="relative flex h-12 w-12 shrink-0 items-center justify-center transition-transform group-hover:scale-105">
+            <Image
+              src="/logo-harness.png"
+              alt="Logo Harness"
+              width={48}
+              height={48}
+              priority
+              className="relative z-10 drop-shadow-[0_0_12px_rgba(167,139,250,0.5)]"
+            />
+            {/* Glow violeta ambiente */}
             <span
               aria-hidden
-              className="absolute -inset-1 -z-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 opacity-50 blur-md transition-opacity group-hover:opacity-80"
+              className="absolute inset-0 -z-10 rounded-full bg-gradient-to-br from-violet-500/40 via-fuchsia-500/30 to-rose-500/20 opacity-60 blur-xl transition-opacity group-hover:opacity-100"
             />
           </span>
 

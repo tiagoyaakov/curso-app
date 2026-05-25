@@ -10,7 +10,7 @@ export const CONFIG = {
   /** URL do repositório learning-harness no GitHub. */
   learningHarnessUrl:
     process.env.NEXT_PUBLIC_LEARNING_HARNESS_URL ||
-    "https://github.com/SEU-USUARIO/learning-harness",
+    "https://github.com/tiagoyaakov/learning-harness",
 
   /** Identificador "SEU-USUARIO/learning-harness" para mostrar no comando git clone. */
   get learningHarnessSlug() {

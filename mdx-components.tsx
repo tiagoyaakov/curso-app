@@ -6,11 +6,15 @@ import { Reflexao } from "@/components/curso/reflexao";
 import { PTP } from "@/components/curso/ptp";
 import { Terminal } from "@/components/curso/terminal";
 import { TermoGlossario } from "@/components/curso/termo-glossario";
+import { TermoInline } from "@/components/curso/termo-inline";
 import { Aviso } from "@/components/curso/aviso";
 
 /**
  * Componentes disponíveis automaticamente em qualquer arquivo MDX.
  * Você pode usar <Diagrama>, <Checklist>, etc. direto no .mdx sem importar.
+ *
+ * <Termo k="..."> abre definição INLINE (expansão no contexto).
+ * <TermoTooltip k="..."> usa tooltip + link para página (versão antiga).
  */
 const courseComponents: MDXComponents = {
   Diagrama,
@@ -19,7 +23,8 @@ const courseComponents: MDXComponents = {
   Reflexao,
   PTP,
   Terminal,
-  Termo: TermoGlossario,
+  Termo: TermoInline,
+  TermoTooltip: TermoGlossario,
   Aviso,
 };
 

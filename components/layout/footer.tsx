@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { GithubIcon } from "@/components/icons/github";
 import { CONFIG } from "@/lib/config";
 
@@ -12,18 +13,13 @@ export function Footer() {
       />
       <div className="mx-auto flex max-w-[1600px] flex-col items-center justify-between gap-3 px-4 text-xs text-muted-foreground sm:flex-row sm:px-6 lg:px-8">
         <div className="flex items-center gap-2">
-          <span className="flex h-5 w-5 items-center justify-center rounded-sm gradient-bg">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              className="h-2.5 w-2.5 text-white"
-            >
-              <path
-                d="M12 3 L20 7 L20 12 C20 16 16 19 12 21 C8 19 4 16 4 12 L4 7 Z"
-                fill="currentColor"
-              />
-            </svg>
-          </span>
+          <Image
+            src="/logo-harness.png"
+            alt="Logo Harness"
+            width={20}
+            height={20}
+            className="opacity-90"
+          />
           <p>
             <span className="text-foreground">{CONFIG.cursoNomeCompleto}</span>{" "}
             · {CONFIG.cursoSubtitulo}

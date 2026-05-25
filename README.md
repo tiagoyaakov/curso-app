@@ -23,7 +23,7 @@
 ## Setup local
 
 ```bash
-git clone https://github.com/SEU-USUARIO/curso-app.git
+git clone https://github.com/tiagoyaakov/curso-app.git
 cd curso-app
 npm install
 cp .env.example .env.local
