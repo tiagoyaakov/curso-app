@@ -7,12 +7,12 @@ export const metadata = {
 # Sprint 2 — Contrato
 ## A Spec viva e o diário do agente
 
-<Aviso variante="info" titulo="Informações deste Sprint">
-**Duração estimada:** 10 horas.
-**Pré-requisito:** Sprint 1 concluído com nota **B+**.
-**Entregável:** Sprint Contract + State Machine + Event Store funcionando, com 15 testes verdes.
-**Aprovação:** rubrica Grade A–D. Mínimo **B**. Efeito Catraca: Sprint 1 não pode regredir.
-</Aviso>
+<InfoSprint itens={[
+  { icone: "duracao",    label: "Duração estimada", valor: "10 horas (pode ser dividido em 3-5 sessões)" },
+  { icone: "prereq",     label: "Pré-requisito",    valor: <>Sprint 1 concluído com nota <strong>B+</strong></> },
+  { icone: "entregavel", label: "Entregável",       valor: <>Sprint Contract + State Machine + Event Store funcionando, com 15 testes verdes adicionais</> },
+  { icone: "aprovacao",  label: "Aprovação",        valor: <>Grade A–D. Mínimo <strong>B</strong>. <em>Efeito Catraca</em>: Sprint 1 não pode regredir.</> },
+]} />
 
 ---
 
@@ -508,13 +508,21 @@ Resultado: 10/10 critérios.
 Nota: A`}
 </Terminal>
 
-### 10.2 O Juiz
+### 10.2 O Avaliador IA
 
-Suas 4 Reflexões (Labs A, B, C, D) — cole no LLM-as-Judge usando modelo **diferente** do que encomendou o código.
+<AvaliadorIA
+  sprint={2}
+  labs={[
+    { lab: "A", pergunta: "Imagine que você está liderando uma equipe de 5 desenvolvedores humanos. Você os deixaria começar uma feature sem definir escopo, critério de pronto e exclusões? Provavelmente não. Por que aceitamos isso de agentes de IA, então? E o que o Sprint Contract muda no relacionamento com o agente?" },
+    { lab: "B", pergunta: "Por que dedicar a PRIMEIRA sessão de trabalho com um agente NOVO 100% ao Bootstrap Contract (validar ambiente, sem escrever uma linha de feature)? Pesquisas mostram que isso aumenta a taxa de conclusão de features em 31%. Explique POR QUÊ." },
+    { lab: "C", pergunta: "Por que o estado 'passing' é TERMINAL (não admite mais transições)? Se eu deixar 'passing → active' permitido, qual é o pior cenário que isso causa quando o agente está sob pressão de janela cheia?" },
+    { lab: "D", pergunta: "Imagine que o agente bagunçou um deploy em produção. Você precisa entender: o que ele decidiu? por quê? em que ordem? quem aprovou cada passo? Compare DUAS arquiteturas: (1) agente atualiza um banco de dados direto vs (2) agente só append em event store." },
+  ]}
+/>
 
 ### 10.3 Nota final
 
-Menor entre Fiscal e Juiz. Mínimo: **B**. Sprint 1 não pode regredir (Efeito Catraca).
+Menor entre Fiscal e Avaliador IA. Mínimo: **B**. Sprint 1 não pode regredir (Efeito Catraca).
 
 ---
 

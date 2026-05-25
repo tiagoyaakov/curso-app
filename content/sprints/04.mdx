@@ -7,12 +7,12 @@ export const metadata = {
 # Sprint 4 — Inteligência
 ## Quebrar loops, pausar para humano, avaliar respostas
 
-<Aviso variante="info" titulo="Informações deste Sprint">
-**Duração estimada:** 10 horas.
-**Pré-requisito:** Sprints 1, 2 e 3 com nota **B+**.
-**Entregável:** Detector de loops + Approval Gate + Tríade RAG funcionando. Mínimo 13 testes verdes adicionais (total 53+).
-**Aprovação:** Grade A–D. Mínimo **B**. Efeito Catraca: nada do que veio antes pode regredir.
-</Aviso>
+<InfoSprint itens={[
+  { icone: "duracao",    label: "Duração estimada", valor: "10 horas (pode ser dividido em 3-5 sessões)" },
+  { icone: "prereq",     label: "Pré-requisito",    valor: <>Sprints 1, 2 e 3 com nota <strong>B+</strong></> },
+  { icone: "entregavel", label: "Entregável",       valor: <>Detector de loops + Approval Gate + Tríade RAG funcionando. Mínimo 13 testes verdes adicionais (total 53+).</> },
+  { icone: "aprovacao",  label: "Aprovação",        valor: <>Grade A–D. Mínimo <strong>B</strong>. <em>Efeito Catraca</em>: nada do que veio antes pode regredir.</> },
+]} />
 
 ---
 
@@ -488,7 +488,15 @@ Resultado: 3/3 critérios.
 Nota: A`}
 </Terminal>
 
-Cole as 4 Reflexões (uma por Lab) no LLM-as-Judge — em **modelo diferente** do que encomendou o código.
+<AvaliadorIA
+  sprint={4}
+  labs={[
+    { lab: "A", pergunta: "Por que detectar loop DENTRO do harness (código tradicional) é mais seguro do que pedir ao agente 'pare após 5 tentativas' no prompt? Conecte com prompt injection — o que um atacante poderia injetar para fazer o agente ignorar a instrução?" },
+    { lab: "B", pergunta: "Compare DUAS implementações: (1) agente pede aprovação escrevendo no chat 'Posso deletar?' (2) sistema intercepta deleteTable() programaticamente. Em qual cenário o agente CONSEGUE deletar sem aprovação? E em qual o operador esquecer de responder por 1 hora não causa dano?" },
+    { lab: "C", pergunta: "Por que arquivos Markdown locais (PLAN.md, NOTES.md) podem ser melhores que banco vetorial sofisticado nas primeiras fases? Considere: facilidade de inspeção humana, latência, custo, portabilidade entre máquinas. Quando passa a valer a pena ir pra banco vetorial?" },
+    { lab: "D", pergunta: "Você pode ter Faithfulness=1.0 (não inventou nada) e Answer Relevance=0.1 (não respondeu a pergunta). Dê um exemplo concreto: pergunta + contextos + resposta onde isso aconteceria. E por que essas 2 métricas precisam ser SEPARADAS, não combinadas em uma só?" },
+  ]}
+/>
 
 ---
 

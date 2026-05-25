@@ -38,4 +38,10 @@ export const CONFIG = {
 
   /** Subtítulo / domínio. */
   cursoSubtitulo: "Desenvolvimento de Sistemas Driven A.I.",
+
+  /** Autor do curso. */
+  autor: {
+    nome: "Tiago Yaakov",
+    github: "https://github.com/tiagoyaakov",
+  },
 };

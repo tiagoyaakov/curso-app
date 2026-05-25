@@ -7,12 +7,12 @@ export const metadata = {
 # Sprint 3 — Fluxo
 ## Concorrência segura e resiliência de borda
 
-<Aviso variante="info" titulo="Informações deste Sprint">
-**Duração estimada:** 10 horas.
-**Pré-requisito:** Sprints 1 e 2 com nota **B+**.
-**Entregável:** Webhook seguro + fila com retry inteligente + debouncer de mensagens + regras escopadas. Mínimo 17 testes verdes adicionais.
-**Aprovação:** Grade A–D. Mínimo **B**. Efeito Catraca: nada do que veio antes pode regredir.
-</Aviso>
+<InfoSprint itens={[
+  { icone: "duracao",    label: "Duração estimada", valor: "10 horas (pode ser dividido em 3-5 sessões)" },
+  { icone: "prereq",     label: "Pré-requisito",    valor: <>Sprints 1 e 2 com nota <strong>B+</strong></> },
+  { icone: "entregavel", label: "Entregável",       valor: <>Webhook seguro + fila com retry inteligente + debouncer de mensagens + regras escopadas. Mínimo 17 testes verdes adicionais.</> },
+  { icone: "aprovacao",  label: "Aprovação",        valor: <>Grade A–D. Mínimo <strong>B</strong>. <em>Efeito Catraca</em>: nada do que veio antes pode regredir.</> },
+]} />
 
 ---
 
@@ -540,7 +540,15 @@ Resultado: 4/4 critérios.
 Nota: A`}
 </Terminal>
 
-Cole as 4 Reflexões no LLM-as-Judge (modelo diferente).
+<AvaliadorIA
+  sprint={3}
+  labs={[
+    { lab: "A", pergunta: "Imagine que CLAUDE.md global cresce até 800 linhas com TODAS as regras do projeto. O que acontece com a atenção do agente em sessão longa? Compare com a estratégia de regras escopadas (lidas só quando editando aquela área). Use o conceito de Lost in the Middle." },
+    { lab: "B", pergunta: "O que é um timing attack e por que comparar strings com === é vulnerável? Imagine que sua função leva 1.2ms quando o primeiro caractere bate e 1.0ms quando não bate — como um atacante usa isso para descobrir a assinatura caractere por caractere?" },
+    { lab: "C", pergunta: "Explique o thundering herd problem: 10.000 clientes seus erram ao mesmo tempo. Todos vão retentar exatamente quando o backoff zerar. Sem jitter, derrubam o provedor de novo. Como o jitter aleatório (±25%) resolve isso? E por que 25% e não 100%?" },
+    { lab: "D", pergunta: "Por que processar cada mensagem fragmentada separadamente seria DESASTRE de UX e de custos? Calcule: usuário típico manda 3 fragmentos por turno. Sem debouncer, agente processa 3× mais turnos." },
+  ]}
+/>
 
 ---
 

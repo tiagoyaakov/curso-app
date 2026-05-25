@@ -109,7 +109,9 @@ export default function Home() {
                     <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-violet-400" />
                   </span>
                   <span className="text-muted-foreground">
-                    Curso · AgentOps · Spec-Driven · Harness Engineering
+                    Curso por{" "}
+                    <span className="font-semibold text-foreground">Tiago Yaakov</span>
+                    {" "}· AgentOps · Spec-Driven · Harness Engineering
                   </span>
                 </div>
 

@@ -3,7 +3,8 @@
 import { useEffect, useState, useTransition } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Brain, Check, FileText } from "lucide-react";
+import { Brain, Check, FileText, Lightbulb, ChevronDown } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { lerReflexao, gravarReflexao, modoPersistencia } from "@/lib/persistencia";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,8 @@ type Props = {
   pergunta: string;
   palavrasMin?: number;
   palavrasMax?: number;
+  /** Dicas opcionais que aparecem em caixa expansível "Como pensar nesta reflexão". */
+  dicas?: React.ReactNode;
 };
 
 export function Reflexao({
@@ -21,11 +24,13 @@ export function Reflexao({
   pergunta,
   palavrasMin = 100,
   palavrasMax = 200,
+  dicas,
 }: Props) {
   const [texto, setTexto] = useState("");
   const [carregado, setCarregado] = useState(false);
   const [salvando, startSalvar] = useTransition();
   const [copiado, setCopiado] = useState(false);
+  const [mostrarDicas, setMostrarDicas] = useState(false);
 
   useEffect(() => {
     let cancelado = false;
@@ -55,7 +60,7 @@ export function Reflexao({
   const palavras = texto.trim().split(/\s+/).filter(Boolean).length;
   const dentro = palavras >= palavrasMin && palavras <= palavrasMax;
 
-  async function copiarParaJuiz() {
+  async function copiarParaAvaliador() {
     const payload = `# Reflexão — Sprint ${sprint}, Lab ${lab}\n\n**Pergunta:** ${pergunta}\n\n**Resposta:**\n${texto.trim()}`;
     try {
       await navigator.clipboard.writeText(payload);
@@ -85,6 +90,48 @@ export function Reflexao({
       </div>
 
       <div className="p-4">
+        {/* Caixa de dicas (opcional, expansível) */}
+        {dicas && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => setMostrarDicas((v) => !v)}
+              aria-expanded={mostrarDicas}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-all",
+                mostrarDicas
+                  ? "border-violet-400/40 bg-violet-500/10 text-violet-300"
+                  : "border-border bg-card text-muted-foreground hover:border-violet-400/30 hover:text-violet-300",
+              )}
+            >
+              <Lightbulb className="h-3 w-3" />
+              Como pensar nesta reflexão
+              <ChevronDown
+                className={cn(
+                  "h-3 w-3 transition-transform",
+                  mostrarDicas && "rotate-180",
+                )}
+              />
+            </button>
+
+            <AnimatePresence>
+              {mostrarDicas && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-2 rounded-lg border border-violet-400/25 bg-gradient-to-br from-violet-500/8 via-transparent to-fuchsia-500/4 p-4 text-sm leading-relaxed text-foreground/90">
+                    {dicas}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
         <Textarea
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
@@ -127,7 +174,7 @@ export function Reflexao({
           <Button
             variant="outline"
             size="sm"
-            onClick={copiarParaJuiz}
+            onClick={copiarParaAvaliador}
             disabled={palavras < 10}
             className={cn(
               "gap-1.5 border-border bg-background/60 transition-all",
@@ -137,12 +184,12 @@ export function Reflexao({
             {copiado ? (
               <>
                 <Check className="h-3.5 w-3.5 text-success" />
-                Copiado para o Juiz
+                Copiado
               </>
             ) : (
               <>
                 <FileText className="h-3.5 w-3.5" />
-                Copiar para o Juiz
+                Copiar texto da Reflexão
               </>
             )}
           </Button>

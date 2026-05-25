@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ClipboardList, Sparkles } from "lucide-react";
+import { ClipboardList, Sparkles, Info, ChevronDown } from "lucide-react";
 import {
   lerChecklist,
   gravarChecklist,
@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 type Item = {
   id: string;
   texto: React.ReactNode;
+  /** Explicação didática expansível abaixo do item. Opcional. */
+  explicacao?: React.ReactNode;
 };
 
 type Props = {
@@ -31,6 +33,7 @@ export function Checklist({
 }: Props) {
   const [estado, setEstado] = useState<Record<string, boolean>>({});
   const [carregado, setCarregado] = useState(false);
+  const [expandido, setExpandido] = useState<Record<string, boolean>>({});
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -56,6 +59,10 @@ export function Checklist({
     startTransition(() => {
       gravarChecklist({ sprint, lab, itemId: id }, valor);
     });
+  }
+
+  function alternarExpansao(id: string) {
+    setExpandido((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   const total = itens.length;
@@ -103,11 +110,14 @@ export function Checklist({
       <ul className="space-y-1 p-3">
         {itens.map((item) => {
           const marcado = estado[item.id] ?? false;
+          const aberto = expandido[item.id] ?? false;
+          const temExplicacao = !!item.explicacao;
+
           return (
             <li key={item.id}>
-              <label
+              <div
                 className={cn(
-                  "flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 transition-all",
+                  "flex items-start gap-3 rounded-lg px-3 py-2.5 transition-all",
                   "hover:bg-violet-500/5",
                   marcado && "opacity-60",
                 )}
@@ -121,15 +131,65 @@ export function Checklist({
                     "data-[state=checked]:border-violet-400 data-[state=checked]:bg-gradient-to-br data-[state=checked]:from-violet-500 data-[state=checked]:to-fuchsia-500 data-[state=checked]:text-white",
                   )}
                 />
-                <span
-                  className={cn(
-                    "flex-1 text-sm leading-relaxed transition-all",
-                    marcado && "text-muted-foreground line-through",
-                  )}
-                >
-                  {item.texto}
-                </span>
-              </label>
+                <div className="flex-1 space-y-0.5">
+                  <label
+                    onClick={(e) => {
+                      // permitir click no texto pra marcar/desmarcar
+                      // (mas não no botão de expandir)
+                      if ((e.target as HTMLElement).closest("[data-toggle-explicacao]")) return;
+                      alternar(item.id, !marcado);
+                    }}
+                    className={cn(
+                      "cursor-pointer block text-sm leading-relaxed transition-all",
+                      marcado && "text-muted-foreground line-through",
+                    )}
+                  >
+                    {item.texto}
+                    {temExplicacao && (
+                      <button
+                        type="button"
+                        data-toggle-explicacao
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          alternarExpansao(item.id);
+                        }}
+                        aria-expanded={aberto}
+                        className={cn(
+                          "ml-1.5 inline-flex h-5 items-center gap-0.5 rounded px-1 text-[10px] font-mono uppercase tracking-wider transition-all",
+                          aberto
+                            ? "bg-violet-500/15 text-violet-300"
+                            : "bg-muted text-muted-foreground hover:bg-violet-500/10 hover:text-violet-300",
+                        )}
+                      >
+                        <Info className="h-2.5 w-2.5" />
+                        ajuda
+                        <ChevronDown
+                          className={cn(
+                            "h-2.5 w-2.5 transition-transform",
+                            aberto && "rotate-180",
+                          )}
+                        />
+                      </button>
+                    )}
+                  </label>
+
+                  <AnimatePresence>
+                    {aberto && item.explicacao && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-2 rounded-md border border-violet-400/20 bg-gradient-to-br from-violet-500/5 to-transparent p-3 text-xs leading-relaxed text-muted-foreground">
+                          {item.explicacao}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
             </li>
           );
         })}

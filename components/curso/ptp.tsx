@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Brain, Check, X, Eye, EyeOff, Zap } from "lucide-react";
+import { Brain, Check, X, Eye, EyeOff, Zap, Lightbulb, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Opcao = {
@@ -16,6 +16,8 @@ type Questao = {
   pergunta: React.ReactNode;
   opcoes?: Opcao[];
   resposta?: React.ReactNode;
+  /** Dica didática opcional (expansível "Como pensar nesta questão"). */
+  comoPensar?: React.ReactNode;
 };
 
 type Props = {
@@ -71,6 +73,7 @@ function QuestaoBlock({
 }) {
   const [escolhida, setEscolhida] = useState<string | null>(null);
   const [mostrarResposta, setMostrarResposta] = useState(false);
+  const [mostrarComoPensar, setMostrarComoPensar] = useState(false);
 
   return (
     <div className="space-y-3">
@@ -81,6 +84,48 @@ function QuestaoBlock({
       )}
 
       <div className="text-sm leading-relaxed">{questao.pergunta}</div>
+
+      {/* Dica "Como pensar nesta questão" — antes das opções */}
+      {questao.comoPensar && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setMostrarComoPensar((v) => !v)}
+            aria-expanded={mostrarComoPensar}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-all",
+              mostrarComoPensar
+                ? "border-violet-400/40 bg-violet-500/10 text-violet-300"
+                : "border-border bg-card text-muted-foreground hover:border-violet-400/30 hover:text-violet-300",
+            )}
+          >
+            <Lightbulb className="h-3 w-3" />
+            Como pensar nesta questão
+            <ChevronDown
+              className={cn(
+                "h-3 w-3 transition-transform",
+                mostrarComoPensar && "rotate-180",
+              )}
+            />
+          </button>
+
+          <AnimatePresence>
+            {mostrarComoPensar && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="mt-2 rounded-md border border-violet-400/25 bg-gradient-to-br from-violet-500/5 to-transparent p-3 text-xs leading-relaxed text-muted-foreground">
+                  {questao.comoPensar}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
 
       {questao.opcoes && (
         <div className="space-y-2 pt-1">

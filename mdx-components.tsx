@@ -8,6 +8,8 @@ import { Terminal } from "@/components/curso/terminal";
 import { TermoGlossario } from "@/components/curso/termo-glossario";
 import { TermoInline } from "@/components/curso/termo-inline";
 import { Aviso } from "@/components/curso/aviso";
+import { InfoSprint } from "@/components/curso/info-sprint";
+import { AvaliadorIA } from "@/components/curso/avaliador-ia";
 
 /**
  * Componentes disponíveis automaticamente em qualquer arquivo MDX.
@@ -26,6 +28,8 @@ const courseComponents: MDXComponents = {
   Termo: TermoInline,
   TermoTooltip: TermoGlossario,
   Aviso,
+  InfoSprint,
+  AvaliadorIA,
 };
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
