@@ -3,13 +3,12 @@
 import { chromium } from "playwright";
 import { mkdir } from "node:fs/promises";
 
-const BASE = "http://localhost:3737";
+const BASE = process.env.BASE_URL ?? "http://localhost:3737";
 const OUT = "../.firecrawl";
 const PAGES = [
-  { path: "/", file: "curso-home.png" },
-  { path: "/sprint/2", file: "curso-sprint2.png" },
-  { path: "/sprint/3", file: "curso-sprint3.png" },
-  { path: "/sprint/4", file: "curso-sprint4.png" },
+  { path: "/", file: "v2-home.png" },
+  { path: "/sprint/1", file: "v2-sprint1-didatico.png" },
+  { path: "/comecar", file: "v2-comecar.png" },
 ];
 
 await mkdir(OUT, { recursive: true }).catch(() => {});

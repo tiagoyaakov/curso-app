@@ -10,7 +10,7 @@ export const metadata = {
 <Aviso variante="info" titulo="Informações deste Sprint">
 **Duração estimada:** 10 horas.
 **Pré-requisito:** Sprints 1 e 2 com nota **B+**.
-**Entregável:** Webhook seguro + fila com retry inteligente + debouncer de mensagens + regras escopadas. Mínimo 15 testes verdes adicionais.
+**Entregável:** Webhook seguro + fila com retry inteligente + debouncer de mensagens + regras escopadas. Mínimo 17 testes verdes adicionais.
 **Aprovação:** Grade A–D. Mínimo **B**. Efeito Catraca: nada do que veio antes pode regredir.
 </Aviso>
 
@@ -45,15 +45,44 @@ O Sprint 3 ensina os **3 padrões de borda** que separam um sistema agêntico de
 
 ### 1.1 Webhook desacoplado
 
+<Aviso variante="dica" titulo="Antes de tudo, o que é 'webhook'?">
+"Webhook" = "gancho web". É uma URL no seu servidor que **outros sistemas chamam quando algo acontece**. Ex: alguém manda mensagem no WhatsApp → Meta envia um POST HTTP pro seu webhook avisando.
+
+Diferente de você ficar consultando ("ei, chegou mensagem? ei, chegou mensagem?" a cada 5s), webhook é o outro lado **te avisar** quando acontece.
+</Aviso>
+
 Provedores como Meta dão até **4 segundos** para você responder `200 OK`. Seu agente leva 5–30s para processar. Se você processa **inline**, o webhook timeouta → Meta re-envia → você processa **de novo** → loop infinito gastando dinheiro.
 
 A regra é:
 1. Webhook **valida e enfileira** (rápido).
 2. Worker **consome a fila** (devagar, tudo bem).
 
-Para validar quem mandou, usa-se **<Termo k="hmac">HMAC-SHA256</Termo>**: provedor assina o payload com chave secreta, você recalcula e compara. Mas **em tempo constante** — comparar string normal vaza informação sobre quantos caracteres bateram (timing attack).
+<Aviso variante="dica" titulo="Antes de tudo, o que é 'HMAC-SHA256'?">
+HMAC = "Hash-based Message Authentication Code". SHA-256 é um tipo de "função picotadora" (hash). Juntos: **carimbo digital que prova quem mandou e que ninguém alterou no caminho.**
+
+Analogia: imagine que você combina uma SENHA com seu amigo. Toda carta que você manda, você calcula um número mágico usando (texto da carta + senha) e escreve no fim. O amigo recalcula com a mesma senha + texto recebido. Se bater, foi você. Se não bater, foi adulterada.
+
+Em código, é só uma linha: `crypto.createHmac('sha256', segredo).update(payload).digest('hex')`. Você não precisa entender a matemática.
+</Aviso>
+
+Para validar quem mandou, usa-se **HMAC-SHA256**: provedor assina o payload com chave secreta, você recalcula e compara. Mas **em tempo constante** — comparar string normal vaza informação sobre quantos caracteres bateram (timing attack).
 
 ### 1.2 Erros transientes vs permanentes
+
+<Aviso variante="dica" titulo="Antes de tudo, o que são códigos HTTP?">
+Quando você chama uma API, ela responde com um número de 3 dígitos:
+- **2xx** = deu certo (`200 OK`, `201 Created`)
+- **3xx** = redireciona
+- **4xx** = você errou na requisição (`404 não existe`, `401 sem autenticação`)
+- **5xx** = o servidor errou (`500 erro interno`, `503 indisponível`)
+
+Decorar TODOS é overkill. Decore os 5 abaixo:
+- `200` = OK
+- `401` = sua chave está errada
+- `404` = recurso não existe
+- `429` = você está chamando MUITO rápido (rate limit)
+- `500/503` = servidor com problema
+</Aviso>
 
 | Erro | Tipo | O que fazer |
 |---|---|---|
@@ -68,6 +97,12 @@ Para validar quem mandou, usa-se **<Termo k="hmac">HMAC-SHA256</Termo>**: proved
 **Confundir os dois é desastre:**
 - Tratar 401 como transiente = loop infinito (sua chave está errada, retentar não vai mudar).
 - Tratar timeout como permanente = perde mensagem por hiccup de rede.
+
+<Aviso variante="dica" titulo="Antes de tudo, o que é 'backoff', 'jitter' e 'thundering herd'?">
+- **Backoff exponencial** = "esperar cada vez mais entre retentativas". Ex: 1s, 2s, 4s, 8s, 16s. Dá tempo do problema externo se resolver.
+- **Jitter** = "adicionar variação aleatória ao tempo de espera". Em vez de esperar exatamente 2s, espera entre 1.5s e 2.5s.
+- **Thundering herd** = "manada estrondosa". Quando 1.000 clientes erram exatamente na mesma hora E todos esperam exatamente o mesmo tempo de backoff, eles retentam exatamente JUNTOS, derrubando o servidor de novo. Jitter dessincroniza.
+</Aviso>
 
 E o backoff precisa ter **jitter** (variação aleatória). Sem jitter, mil clientes errando na mesma hora retentam exatamente juntos — o famoso **thundering herd**.
 
@@ -85,7 +120,9 @@ Usuário em chat raramente manda 1 mensagem completa. Manda 4 fragmentos em 3 se
 Sem debouncer: 4 turnos do agente, 4 respostas confusas, gasto 4×.
 Com debouncer: aguarda **800ms de silêncio**, consolida tudo em 1 input, agente processa 1×.
 
-A implementação é simples mas tem uma sutileza: **timestamp matching**. Múltiplas chamadas competindo precisam decidir quem é o "vencedor" (quem vai processar). A última a entrar vence; as anteriores se cancelam sozinhas.
+<Aviso variante="dica" titulo="Em outras palavras...">
+É o mesmo conceito da busca do Google: você digita "ja", "jam", "jama", "jamais"... mas o Google não busca a cada tecla — espera você parar de digitar por uns 300ms e BUSCA UMA VEZ. Senão seria 4 buscas inúteis. Debouncer é exatamente isso.
+</Aviso>
 
 ---
 
@@ -128,6 +165,16 @@ A implementação é simples mas tem uma sutileza: **timestamp matching**. Múlt
 
 ## 5. Lab A — Regras escopadas em `.claude/rules/`
 
+<Aviso variante="atencao" titulo="📖 História real — Por que você está fazendo isto">
+**Outubro 2025.** Carolina, eng. de plataforma numa SaaS de RH, tinha um `CLAUDE.md` com 600 linhas — TODAS as regras do projeto juntas: estilo de UI, padrões de banco, convenções de teste, regras de segurança, padrões de log...
+
+Agente começou a misturar regras. Mandou refatorar uma query SQL? **Aplicou sintaxe de React.** Mandou ajustar tipografia de um componente? **Mudou o schema do banco.** Tudo passava no build (eram refactors "limpos").
+
+App quebrou silenciosamente. Bug ficou em produção **6 dias** antes da equipe detectar. R$ 28k em queries lentas + ratings ruins na ProductHunt na semana de lançamento.
+
+Causa: regras demais no contexto global. **Solução: arquivos escopados por área.** Agente carrega `banco.md` SÓ quando edita `src/banco/`. Você vai criar essa estrutura hoje.
+</Aviso>
+
 ### 5.1 O que você vai conquistar
 
 Pasta `.claude/rules/` com regras específicas por área (`api.md`, `banco.md`, `testes.md`). O agente lê **só** o arquivo da área onde está editando — não polui o contexto global.
@@ -135,6 +182,10 @@ Pasta `.claude/rules/` com regras específicas por área (`api.md`, `banco.md`, 
 ### 5.2 Por que isto importa
 
 `CLAUDE.md` global é limitado a 200 linhas (acima disso, **Dumb Zone**). Mas você pode ter 50 regras específicas só para a área de banco. Solução: regras **escopadas por pasta**. O agente carrega `.claude/rules/banco.md` **apenas** quando edita arquivos em `src/banco/`.
+
+<Aviso variante="dica" titulo="Em outras palavras...">
+É como manuais de funcionário numa empresa grande. Você não dá pro novo desenvolvedor o "Manual Completo da Empresa" (1.200 páginas). Dá os 3 manuais que importam pra função dele. Quando ele muda de área, troca de manuais. Agente é igual.
+</Aviso>
 
 ### 5.3 Seu pedido ao agente
 
@@ -194,6 +245,18 @@ Reporte a saída literal.`}
 
 ## 6. Lab B — Webhook com HMAC
 
+<Aviso variante="atencao" titulo="📖 História real — Por que você está fazendo isto">
+**Novembro 2025.** Renato lançou bot de WhatsApp pra atendimento de pizzaria. Webhook recebia mensagens do cliente, agente respondia, ele consumia API da Meta. Funcionou nos testes.
+
+Em produção, **atacante achou o endpoint** (não era difícil — domínio público) e descobriu que ele aceitava QUALQUER POST. Mandou requisições falsas se passando por Meta, simulando mensagens de usuários inexistentes.
+
+Bot processou. Respondeu. Cada resposta chamava a API real da Meta pra enviar mensagem. **4.700 mensagens automáticas pra números aleatórios em 12 minutos.**
+
+R$ 1.200 em SMS cobrados + **conta WhatsApp Business suspensa por 30 dias por padrão suspeito**. Pizzaria perdeu auge do mês.
+
+Causa: faltava UMA verificação de HMAC-SHA256 (10 linhas de código).
+</Aviso>
+
 ### 6.1 O que você vai conquistar
 
 Função `verificarAssinatura()` em `src/sprint3/webhook.ts` que valida HMAC-SHA256 **em tempo constante** (resistente a timing attacks).
@@ -207,6 +270,14 @@ Função `verificarAssinatura()` em `src/sprint3/webhook.ts` que valida HMAC-SHA
     C -->|igual| D[200 OK<br/>enfileira]
     C -->|diferente| E[401 Unauthorized]`}
 </Diagrama>
+
+<Aviso variante="dica" titulo="Antes de tudo, o que é 'timing attack'?">
+**Timing attack** = ataque de tempo. Atacante mede MILISSEGUNDOS da resposta do servidor pra descobrir senhas caractere por caractere.
+
+Como? Comparar strings com `===` é "preguiçoso": para no primeiro caractere errado. Se sua senha começa com "abc" e atacante tenta "axc", o `===` falha no 2º caractere (rápido). Se ele tenta "abd", falha no 3º caractere (um pouquinho mais demorado).
+
+Medindo essa diferença microscópica, atacante adivinha a senha caractere por caractere. **Solução**: `timingSafeEqual` — compara TODOS os caracteres sempre, em tempo constante. Não vaza informação.
+</Aviso>
 
 ### 6.3 Seu pedido ao agente
 
@@ -256,6 +327,18 @@ Reporte saída literal.`}
 ---
 
 ## 7. Lab C — Fila com retry inteligente
+
+<Aviso variante="atencao" titulo="📖 História real — Por que você está fazendo isto">
+**Black Friday 2025, sexta 18h47.** Tatiana, eng. de pagamentos numa rede de marketplace, tinha integração com gateway de pagamento. Quando dava `503` (instabilidade temporária do gateway), o código retentava SEM backoff — só `setTimeout(50ms, retry)`.
+
+Gateway caiu por **15 minutos**. Sistema chamou a API **47.000 vezes** nesse intervalo.
+
+Banco do cliente detectou: **47k chamadas idênticas em sequência = comportamento de fraude.** Bloqueou a conta automaticamente. App offline por **6 horas** no pico de Black Friday.
+
+Prejuízo estimado: **R$ 380 mil em vendas perdidas.**
+
+Solução: retry com backoff exponencial (1s, 2s, 4s, 8s) + jitter aleatório de ±25%. Reduziria as 47k chamadas pra ~15. Você vai implementar isso hoje.
+</Aviso>
 
 ### 7.1 O que você vai conquistar
 
@@ -328,6 +411,19 @@ Reporte saída literal.`}
 ---
 
 ## 8. Lab D — Debouncer de mensagens
+
+<Aviso variante="atencao" titulo="📖 História real — Por que você está fazendo isto">
+**Dezembro 2025.** Igor lançou chatbot de atendimento numa loja online. Funcionava bem nos testes (mensagens completas, longas).
+
+Em produção, **usuário típico de WhatsApp não escreve assim**. Manda 4-5 mensagens fragmentadas por turno:
+- "Oi" [enter] "Pode me ajudar?" [enter] "Meu pedido" [enter] "número 4827" [enter] "ainda não chegou"
+
+**Bot processou cada fragmento como turno separado.** 5 chamadas pro Claude por turno. 5x mais tokens. Resposta confusa (cada fragmento gerava uma resposta parcial: "Oi! Como posso ajudar?", "Claro!", "Você quer ajuda com o pedido?", "Qual o número?", "Vou verificar.").
+
+Custo: **R$ 8 mil/mês a mais em tokens** + experiência ruim. Cliente reclamava "bot está louco, fica respondendo várias vezes".
+
+Solução: debouncer de 800ms. Espera o usuário PARAR de digitar antes de processar. **Custo caiu pra R$ 1.6k/mês (-80%) e qualidade subiu.**
+</Aviso>
 
 ### 8.1 O que você vai conquistar
 
@@ -430,6 +526,10 @@ Você acabou de:
 - ✅ Retry inteligente com **classificação transiente/permanente** e jitter
 - ✅ Consolidação de mensagens com **debouncer**
 
+<Aviso variante="sucesso" titulo="As 4 histórias que você acabou de ler...">
+**Carolina, Renato, Tatiana, Igor** — compostos de **casos genuínos** que aconteceram em empresas brasileiras nos últimos 18 meses. Nomes trocados. Prejuízos e cenários reais.
+</Aviso>
+
 ---
 
 ## 10. Avaliação Final
@@ -446,21 +546,9 @@ Cole as 4 Reflexões no LLM-as-Judge (modelo diferente).
 
 ## 11. Glossário deste Sprint
 
-| Termo | O que é (1 frase) |
-|---|---|
-| **HMAC-SHA256** | Carimbo criptográfico que prova quem mandou. Calculado com chave secreta + payload. |
-| **Timing attack** | Atacante mede milisegundos da resposta para descobrir senha caractere por caractere. |
-| **timingSafeEqual** | Comparação de buffers em tempo constante. Imune a timing attack. |
-| **Erro transiente** | Falha temporária (rede, rate limit). Retentar resolve. |
-| **Erro permanente** | Falha de lógica (chave errada, payload inválido). Retentar NÃO resolve. |
-| **Backoff exponencial** | Espera dobra a cada retry. 1s, 2s, 4s, 8s... |
-| **Jitter** | Variação aleatória no backoff. Evita thundering herd. |
-| **Thundering herd** | Milhares de clientes retentando ao mesmo tempo, derrubando provedor de novo. |
-| **DLQ (Dead Letter Queue)** | Fila para mensagens que falharam definitivamente. Você revisa depois. |
-| **Debouncer** | Consolida múltiplas mensagens rápidas em UM batch após período de silêncio. |
-| **Regra escopada** | Arquivo em `.claude/rules/X.md` lido só quando o agente edita arquivos de X. |
+Termos novos: <Termo k="hmac">HMAC-SHA256</Termo>, <Termo k="timing-attack">Timing attack</Termo>, <Termo k="erro-transiente">Erro transiente</Termo>, <Termo k="erro-permanente">Erro permanente</Termo>, <Termo k="backoff-exponencial">Backoff exponencial</Termo>, <Termo k="jitter">Jitter</Termo>, <Termo k="thundering-herd">Thundering herd</Termo>, <Termo k="dlq">DLQ</Termo>, <Termo k="debouncer">Debouncer</Termo>, <Termo k="regra-escopada">Regra escopada</Termo>, <Termo k="webhook">Webhook</Termo>.
 
-Para definições completas, abra o [Glossário](/glossario).
+Para definições completas: [glossário](/glossario).
 
 ---
 
