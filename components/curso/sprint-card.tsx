@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type MouseEvent, type ReactNode } from "react";
+import { useCallback, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,15 +23,12 @@ export function SprintCard({
   horas,
   disponivel,
 }: Props) {
-  const ref = useRef<HTMLElement>(null);
-
-  function handleMouseMove(e: MouseEvent<HTMLElement>) {
-    const el = ref.current;
-    if (!el) return;
+  const handleMouseMove = useCallback((e: MouseEvent<HTMLElement>) => {
+    const el = e.currentTarget;
     const rect = el.getBoundingClientRect();
     el.style.setProperty("--mx", `${e.clientX - rect.left}px`);
     el.style.setProperty("--my", `${e.clientY - rect.top}px`);
-  }
+  }, []);
 
   const baseClass = cn(
     "spotlight-card group relative block overflow-hidden rounded-2xl border border-border bg-card p-6 transition-transform",
@@ -85,10 +82,10 @@ export function SprintCard({
   if (disponivel) {
     return (
       <Link
-        ref={ref as React.Ref<HTMLAnchorElement>}
         href={`/sprint/${id}`}
         onMouseMove={handleMouseMove}
         className={baseClass}
+        style={{ "--spotlight-color": "168, 139, 250" } as React.CSSProperties}
       >
         {conteudo}
       </Link>
@@ -97,9 +94,9 @@ export function SprintCard({
 
   return (
     <div
-      ref={ref as React.Ref<HTMLDivElement>}
       onMouseMove={handleMouseMove}
       className={baseClass}
+      style={{ "--spotlight-color": "168, 139, 250" } as React.CSSProperties}
     >
       {conteudo}
     </div>

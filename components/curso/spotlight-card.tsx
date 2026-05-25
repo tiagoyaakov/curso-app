@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type MouseEvent, type ReactNode } from "react";
+import { useCallback, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
@@ -17,8 +17,9 @@ type Props = {
  * Card com efeito de "spotlight" — uma borda que ACOMPANHA o cursor.
  *
  * Implementação:
- *  - Captura mousemove no card e atualiza CSS variables `--mx` e `--my`.
- *  - Uma camada `::before` (via classe `.spotlight-glow`) renderiza um
+ *  - Captura mousemove no próprio elemento (via currentTarget) e atualiza
+ *    CSS variables `--mx` e `--my`.
+ *  - Uma camada `::before` (via classe `.spotlight-ring`) renderiza um
  *    radial-gradient centrado em (--mx, --my), visível só na borda
  *    via mask trick (linear gradient menos linear gradient = só borda).
  *
@@ -33,15 +34,14 @@ export function SpotlightCard({
   href,
   variant = "violet",
 }: Props) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  function handleMouseMove(e: MouseEvent<HTMLElement>) {
-    const el = ref.current;
-    if (!el) return;
+  // Usa currentTarget (sempre o próprio elemento) — evita conflito de tipo
+  // entre HTMLAnchorElement (Link) e HTMLDivElement (div).
+  const handleMouseMove = useCallback((e: MouseEvent<HTMLElement>) => {
+    const el = e.currentTarget;
     const rect = el.getBoundingClientRect();
     el.style.setProperty("--mx", `${e.clientX - rect.left}px`);
     el.style.setProperty("--my", `${e.clientY - rect.top}px`);
-  }
+  }, []);
 
   const colorMap = {
     violet: "168, 139, 250",
@@ -49,18 +49,15 @@ export function SpotlightCard({
     rose: "251, 113, 133",
   } as const;
 
-  const innerProps = {
-    onMouseMove: handleMouseMove,
-    className: cn(
-      "spotlight-card group relative overflow-hidden rounded-2xl border border-border bg-card",
-      className,
-    ),
-    style: {
-      "--spotlight-color": colorMap[variant],
-    } as React.CSSProperties,
-  };
+  const sharedClassName = cn(
+    "spotlight-card group relative overflow-hidden rounded-2xl border border-border bg-card",
+    className,
+  );
 
-  // Conteúdo interno é o mesmo, só muda o elemento externo
+  const sharedStyle = {
+    "--spotlight-color": colorMap[variant],
+  } as React.CSSProperties;
+
   const innerContent = (
     <>
       {/* Spotlight ring (borda que segue o cursor) */}
@@ -73,14 +70,23 @@ export function SpotlightCard({
 
   if (href) {
     return (
-      <Link href={href} ref={ref} {...innerProps}>
+      <Link
+        href={href}
+        onMouseMove={handleMouseMove}
+        className={sharedClassName}
+        style={sharedStyle}
+      >
         {innerContent}
       </Link>
     );
   }
 
   return (
-    <div ref={ref} {...innerProps}>
+    <div
+      onMouseMove={handleMouseMove}
+      className={sharedClassName}
+      style={sharedStyle}
+    >
       {innerContent}
     </div>
   );
