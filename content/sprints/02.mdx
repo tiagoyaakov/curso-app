@@ -1,0 +1,467 @@
+export const metadata = {
+  titulo: "Sprint 2 — Contrato",
+  subtitulo: "A Spec viva e o diário do agente",
+  duracao: "10 horas",
+};
+
+# Sprint 2 — Contrato
+## A Spec viva e o diário do agente
+
+<Aviso variante="info" titulo="Informações deste Sprint">
+**Duração estimada:** 10 horas.
+**Pré-requisito:** Sprint 1 concluído com nota **B+**.
+**Entregável:** Sprint Contract + State Machine + Event Store funcionando, com 12 testes verdes.
+**Aprovação:** rubrica Grade A–D. Mínimo **B**. Efeito Catraca: Sprint 1 não pode regredir.
+</Aviso>
+
+---
+
+## 0. Por que este Sprint existe
+
+No Sprint 1 você construiu o **cinto de segurança** do agente: hooks que barram comandos perigosos e um motor que decide antes de executar. Bom — o agente não destrói mais nada.
+
+Mas o agente ainda **mente sobre o que fez**.
+
+Ele diz "implementei" quando implementou metade. Ele diz "testes passam" quando comentou 3 deles. Ele diz "feature pronta" quando faltam tratamentos de erro. Tudo isso tem nome técnico:
+
+- **One Shot Hero**: agente tenta resolver TUDO em um único turno e exaure a janela de atenção.
+- **Vitória Prematura**: agente declara conclusão antes do trabalho estar pronto, sob pressão da janela cheia.
+- **Pass-by-Deletion**: agente "resolve" teste vermelho deletando o teste.
+
+O **Sprint 2** resolve isso fazendo o agente operar sob **contrato formal**: ele assina o que vai fazer antes, e cada passo dele vira **evento imutável** num diário. Não dá pra mentir sobre o que aconteceu se cada decisão fica gravada em log que ninguém apaga.
+
+<Diagrama legenda="O agente sai do 'vibe escrevendo código' e entra em ciclo contratual auditável">
+{`flowchart LR
+    A[Você define<br/>Sprint Contract] --> B[Agente ASSINA<br/>e começa]
+    B --> C[Cada decisão<br/>vira EVENTO]
+    C --> D[Estado é PROJETADO<br/>do log de eventos]
+    D --> E{Passa nos<br/>passCriteria?}
+    E -->|sim| F[passing<br/>imutável]
+    E -->|não| G[blocked<br/>com motivo no log]
+    G -.->|replanjeamento| B`}
+</Diagrama>
+
+---
+
+## 1. Os 3 conceitos-âncora
+
+### 1.1 O fim do "One Shot Hero"
+
+O agente tem uma **janela de atenção limitada** (~200k tokens nos modelos grandes). Quando você pede "implementa essa feature toda de uma vez", ele tenta — mas conforme escreve, lê arquivos, recebe erros de teste, a janela enche.
+
+Quando enche, ele **vira burro** (<Termo k="context-rot">Context Rot</Termo>). E sob pressão de "tô quase no limite", ele faz a coisa pior: **declara vitória pra parar**. É o instinto humano de "tá bom, dá uma confeRida amanhã" — mas o agente não tem amanhã, então ele entrega meio-pronto e diz que tá pronto.
+
+| One Shot Hero (errado) | Contrato Atômico (certo) |
+|---|---|
+| "Implementa o sistema todo de auth" | "Implementa SÓ a função `validarSenha`" |
+| Agente lê 40 arquivos, edita 12 | Agente lê 2, edita 1 |
+| Janela enche em 30 turnos | Janela termina com 60% sobrando |
+| Vitória prematura: "tá funcionando" | Resultado real verificado por teste |
+
+### 1.2 Spec-First, Spec-Anchored, Spec-as-Source
+
+Três níveis de rigor com especificação:
+
+| Nível | Analogia | O que é |
+|---|---|---|
+| **Spec-First** | Namorando | Você escreve spec antes de pedir. Depois código vira o "oficial" e a spec fica esquecida. |
+| **Spec-Anchored** | Noivado | Spec vive junto do código. Toda mudança no código exige update da spec. CI valida que estão sincronizados. |
+| **Spec-as-Source** | Casamento | Spec é a fonte ÚNICA. O código é GERADO da spec por compilador/agente. Você não edita código direto. |
+
+Este Sprint trabalha em **Spec-Anchored**: o **Sprint Contract** (Lab A) é a spec que vive no repositório, e o **State Machine** (Lab C) garante que mudanças seguem regras formais.
+
+### 1.3 Event Sourcing — o diário que não pode ser apagado
+
+Em vez de o agente atualizar um banco de dados direto (e poder mentir sobre o que mudou), ele só pode **anexar eventos** num log:
+
+- `TASK_CREATED { task_id: "t1" }`
+- `TASK_CLAIMED { task_id: "t1" } by agent:coder`
+- `TASK_REVISED { task_id: "t1" }` (3 vezes)
+- `TASK_COMPLETED { task_id: "t1" }`
+
+O **estado** atual ("task t1 está em done, com 3 revisões") é **derivado** desse log — função pura, sem mutação direta. Isso te dá:
+
+- **Replay determinístico**: rodando o log de novo, dá o mesmo estado. Sempre.
+- **Auditoria forense**: você sabe exatamente o que aconteceu, na ordem, e por quem.
+- **Bifurcação barata**: pode rebobinar pra qualquer ponto e tentar outro caminho.
+
+<Aviso variante="dica" titulo="Conexão com o Sprint 1">
+O motor de decisão do Sprint 1 (`motor.ts`) já era determinístico. Agora todo o **histórico** também é. O agente perdeu a capacidade de "fingir que não disse" — ficou tudo no log.
+</Aviso>
+
+---
+
+<PTP
+  numero={1}
+  titulo="Identifique a Vitória Prematura"
+  tempoEstimado="10 min"
+  questoes={[
+    {
+      pergunta: <>O agente devolveu: <em>"Implementei a feature. Os testes que falhavam eram inválidos, removi eles. O resto está verde."</em></>,
+      opcoes: [
+        { id: "a", texto: "OK — se os testes eram inválidos, remover faz sentido." },
+        { id: "b", texto: "Vitória Prematura + Pass-by-Deletion — testes inválidos se ajustam, não se removem.", correta: true },
+        { id: "c", texto: "Falta de contexto — pedir pra ele explicar melhor." },
+      ],
+      resposta: <>Dois anti-padrões juntos. <Termo k="pass-by-deletion">Pass-by-Deletion</Termo> (deletar teste para verde virtual) E <em>Vitória Prematura</em> (declarar pronto sob justificativa frágil). Em harness maduro, deletar teste exige aprovação explícita registrada no log.</>
+    },
+    {
+      pergunta: <>O agente após 18 turnos: <em>"Acho que está funcionando — não consegui rodar todos os testes mas a maioria passa."</em></>,
+      opcoes: [
+        { id: "a", texto: "Vitória Prematura clássica — 'acho' e 'maioria' não são critérios.", correta: true },
+        { id: "b", texto: "Honesto — pelo menos não mente." },
+        { id: "c", texto: "Normal sob janela cheia." },
+      ],
+      resposta: <>Critério tem que ser binário e verificável: <em>'npm test passou com 0 falhas'</em>. 'A maioria' é o sinal exato de Vitória Prematura. O Sprint Contract resolve: <code>passCriteria: ["npm test exit 0"]</code> não admite "maioria".</>
+    },
+    {
+      pergunta: <>O agente diz: <em>"Feature pronta. PR aberto."</em> Você abre o PR e vê 4 arquivos novos que você não pediu.</>,
+      opcoes: [
+        { id: "a", texto: "Escopo expandido — falta whatNotToChange explícito no contrato.", correta: true },
+        { id: "b", texto: "Iniciativa — agente fez mais do que pediram." },
+        { id: "c", texto: "Refazer o PR sem os extras." },
+      ],
+      resposta: <>Falta de <code>whatNotToChange</code> e <code>exclusions</code> no contrato deixa o agente "ajudar demais". Em produção, escopo expandido = revisão de horas e regressões em áreas que você nem ia tocar. Contrato resolve.</>
+    },
+  ]}
+/>
+
+---
+
+## 5. Lab A — O Sprint Contract formal
+
+### 5.1 O que você vai conquistar
+
+Um arquivo `src/sprint2/sprint-contract.ts` com uma função `validarContrato()` que aceita ou rejeita um contrato baseado nos 4 pilares: **whatToChange**, **whatNotToChange**, **passCriteria**, **exclusions**.
+
+### 5.2 Por que isto importa
+
+Sem contrato formal, o agente assume e expande escopo. **Com** contrato formal, ele tem que **assinar antes de começar**, e qualquer arquivo fora do `whatToChange` o motor rejeita.
+
+### 5.3 O contrato
+
+<Diagrama legenda="4 pilares obrigatórios. validarContrato() exige whatToChange + passCriteria. Resto é opcional mas avisa">
+{`flowchart TB
+    A[SprintContract] --> B[whatToChange<br/>OBRIGATÓRIO]
+    A --> C[whatNotToChange<br/>opcional, recomendado]
+    A --> D[passCriteria<br/>OBRIGATÓRIO]
+    A --> E[exclusions<br/>opcional]
+
+    B --> V{validarContrato}
+    C --> V
+    D --> V
+    E --> V
+
+    V -->|tudo OK| OK[valido: true]
+    V -->|falta crítico| ERR[valido: false<br/>faltas: array]`}
+</Diagrama>
+
+### 5.4 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab A — Sprint Contract">
+{`Repositório learning-harness. Leia CLAUDE.md primeiro.
+
+Tarefa: implementar src/sprint2/sprint-contract.ts (já tem o esqueleto com tipos).
+
+Regras da função validarContrato:
+- whatToChange OBRIGATÓRIO. Vazio → faltas inclui "whatToChange".
+- passCriteria OBRIGATÓRIO. Vazio → faltas inclui "passCriteria".
+- whatNotToChange OPCIONAL (vazio é OK, mas considere documentar).
+- exclusions OPCIONAL.
+- valido = true só se faltas.length === 0.
+
+Restrições:
+- TypeScript estrito. Sem any.
+- Função pura (sem side effects).
+- Comentários em português.
+- Tamanho-alvo: 20-40 linhas.
+
+Rode: npm test --silent -- tests/sprint2 -t "Lab A"
+Reporte a saída literal.`}
+</PedidoAoAgente>
+
+### 5.5 Sua checklist de inspeção
+
+<Checklist
+  sprint={2}
+  lab="A"
+  itens={[
+    { id: "puro", texto: <>A função é PURA? (não escreve em disco, não chama API, não muta o input)</> },
+    { id: "what-to-change", texto: <>Verifica explicitamente que <code>whatToChange.length &gt; 0</code>?</> },
+    { id: "pass-criteria", texto: <>Verifica explicitamente que <code>passCriteria.length &gt; 0</code>?</> },
+    { id: "faltas-array", texto: <>Retorna <code>faltas</code> como array de strings (não objeto, não string)?</> },
+    { id: "sem-any", texto: <>Sem <code>any</code> ou <code>@ts-ignore</code>?</> },
+    { id: "comentario-pt", texto: <>Comentário em português?</> },
+  ]}
+/>
+
+### 5.6 O Fiscal valida
+
+<Terminal comando="npm run gate -- --sprint=2">
+{`✓ [CRITICO] Lab A: Sprint Contract — validarContrato aceita contrato completo
+✓ [CRITICO] Lab A: rejeita contrato sem whatToChange/passCriteria`}
+</Terminal>
+
+### 5.7 Reflexão
+
+<Reflexao
+  sprint={2}
+  lab="A"
+  pergunta="Imagine que você está liderando uma equipe de 5 desenvolvedores humanos. Você os deixaria começar uma feature sem definir escopo, critério de pronto e exclusões? Provavelmente não. Por que aceitamos isso de agentes de IA, então? E o que o Sprint Contract muda no relacionamento com o agente?"
+/>
+
+---
+
+## 6. Lab B — Bootstrap Contract (intervalado)
+
+Antes de começar a codar feature nova, o agente roda um **check-in obrigatório**: ambiente OK, testes de fumaça verdes, estado legível. Se algum falha, ele **pausa** em vez de "começar mesmo assim".
+
+<Aviso variante="info" titulo="Lab B é leve">
+Este lab é mais conceitual. Em vez de criar um novo arquivo, você só vai **ler** o `scripts/learning-gate.ts` do Sprint 1 (que já faz isso na prática) e responder a reflexão.
+</Aviso>
+
+### 6.1 Reflexão
+
+<Reflexao
+  sprint={2}
+  lab="B"
+  palavrasMin={100}
+  palavrasMax={200}
+  pergunta="Por que dedicar a PRIMEIRA sessão de trabalho com um agente NOVO 100% ao Bootstrap Contract (validar ambiente, sem escrever uma linha de feature)? Pesquisas mostram que isso aumenta a taxa de conclusão de features em 31%. Explique POR QUÊ — o que muda na produtividade quando o agente sabe que o ambiente está sano?"
+/>
+
+---
+
+## 7. Lab C — A máquina de estados das tarefas
+
+### 7.1 O que você vai conquistar
+
+Um arquivo `src/sprint2/state-machine.ts` com função `transitar()` que rege o ciclo de vida de cada tarefa:
+
+<Diagrama legenda="Máquina de estados das tarefas — só transições válidas, e passing é terminal">
+{`stateDiagram-v2
+    [*] --> not_started
+    not_started --> active: agente claim
+    active --> passing: testes OK
+    active --> blocked: erro externo
+    active --> not_started: rollback
+    blocked --> active: desbloqueio
+    blocked --> not_started: cancel
+    passing --> [*]: terminal`}
+</Diagrama>
+
+### 7.2 Por que isto importa
+
+Sem máquina de estados, o agente pode pular `not_started → passing` direto (mentindo que fez). Com máquina formal, **transições inválidas LANÇAM ERRO**. O motor (Sprint 1) já recusa ações destrutivas — agora a máquina recusa transições impossíveis.
+
+### 7.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab C — State Machine">
+{`Mesmo repositório. Implementar src/sprint2/state-machine.ts (já tem esqueleto + tipos + constante _TRANSICOES_INTERNAS).
+
+Funções a implementar:
+- transicaoValida(de, para): boolean
+    Consulta TRANSICOES_VALIDAS internamente.
+- transitar(tarefa, novoStatus): Tarefa
+    Se transição válida: retorna { ...tarefa, status: novoStatus }
+    Se inválida: LANÇA Error explicativo (não retorna undefined, não silencia).
+
+Restrições:
+- TypeScript estrito.
+- Pure function (não muta tarefa de entrada — usa spread).
+- Erro deve incluir o de/para tentado e a lista de transições válidas a partir de 'de'.
+- Comentários em português.
+
+Rode: npm test --silent -- tests/sprint2 -t "Lab C"
+Reporte a saída literal.`}
+</PedidoAoAgente>
+
+### 7.4 Sua checklist
+
+<Checklist
+  sprint={2}
+  lab="C"
+  itens={[
+    { id: "spread", texto: <>Usa <code>{`{ ...tarefa, status: para }`}</code> para criar novo objeto (não muta o original)?</> },
+    { id: "lanca-erro", texto: <>Transições inválidas LANÇAM erro (não retornam undefined)?</> },
+    { id: "erro-explicativo", texto: <>Mensagem de erro inclui o "de", o "para" e as opções válidas?</> },
+    { id: "consulta-tabela", texto: <>Usa a tabela <code>_TRANSICOES_INTERNAS</code>? (não hardcoda condicionais)</> },
+    { id: "passing-terminal", texto: <>Estado <code>passing</code> não permite NENHUMA transição (terminal)?</> },
+    { id: "comentario-pt", texto: <>Comentário em português?</> },
+  ]}
+/>
+
+### 7.5 Reflexão
+
+<Reflexao
+  sprint={2}
+  lab="C"
+  pergunta="Por que o estado 'passing' é TERMINAL (não admite mais transições)? Se eu deixar 'passing → active' permitido, qual é o pior cenário que isso causa quando o agente está sob pressão de janela cheia? Conecte com o anti-padrão Pass-by-Deletion."
+/>
+
+---
+
+## 8. Lab D — O Event Store (diário imutável)
+
+### 8.1 O que você vai conquistar
+
+Um arquivo `src/sprint2/event-store.ts` com:
+- Classe `EventStore` com `append()` e `readAll()`
+- Função pura `projetar(eventos)` que deriva estado atual do log
+
+### 8.2 Por que isto importa
+
+Sem log de eventos, você nunca sabe **por que** o agente decidiu algo. Com log, cada decisão tem traço, ator e ordem. E o estado **deriva** do log — nunca o contrário. Isso te dá replay e bifurcação grátis.
+
+### 8.3 O contrato
+
+<Diagrama legenda="Eventos só são adicionados (append). Estado é função pura do log">
+{`flowchart LR
+    A[Agente decide] --> B[store.append<br/>tipo, actor, payload]
+    B --> C[Log cresce<br/>seq incremental]
+    C --> D[projetar log<br/>função pura]
+    D --> E[Estado atual<br/>Map task → status]`}
+</Diagrama>
+
+### 8.4 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab D — Event Store">
+{`Implementar src/sprint2/event-store.ts (já tem tipos prontos).
+
+Classe EventStore:
+- Mantém array privado de eventos.
+- append(tipo, actor, payload): cria Evento com seq = eventos.length, timestamp ISO atual, e push no array. Retorna o evento criado.
+- readAll(): retorna CÓPIA do array (use spread). NÃO retorna o array interno (evitar mutação externa).
+
+Função projetar(eventos[]): Map<task_id, EstadoTarefa>:
+- Itera eventos em ordem.
+- TASK_CREATED: cria entrada { status: "todo", revisions: 0 }
+- TASK_CLAIMED: atualiza status="claimed", assigned_to=event.actor
+- TASK_REVISED: incrementa revisions
+- TASK_COMPLETED: status="done"
+- TASK_BLOCKED: status="blocked"
+- Eventos sem task_id no payload: IGNORA (não quebra).
+
+Restrições:
+- TypeScript estrito.
+- projetar() PURA (não modifica eventos de entrada).
+- Sem any.
+- Comentários em português.
+
+Rode: npm test --silent -- tests/sprint2 -t "Lab D"
+Reporte a saída literal.`}
+</PedidoAoAgente>
+
+### 8.5 Sua checklist
+
+<Checklist
+  sprint={2}
+  lab="D"
+  itens={[
+    { id: "private", texto: <>Array de eventos é <code>private</code> (encapsulamento)?</> },
+    { id: "spread-readall", texto: <><code>readAll()</code> retorna <code>[...this.eventos]</code> (não a ref direta)?</> },
+    { id: "seq-incremental", texto: <><code>append</code> seta <code>seq = this.eventos.length</code> antes do push?</> },
+    { id: "switch", texto: <><code>projetar</code> usa <code>switch</code> ou estrutura clara para os 5 tipos?</> },
+    { id: "ignora-sem-id", texto: <>Eventos sem <code>task_id</code> são ignorados sem quebrar?</> },
+    { id: "sem-any", texto: <>Sem <code>any</code>?</> },
+  ]}
+/>
+
+### 8.6 O Fiscal valida
+
+<Terminal comando="npm test; npm run gate -- --sprint=2">
+{`Tests  12 passed (12)
+...
+Resultado: 10/10 critérios.
+Nota: A`}
+</Terminal>
+
+### 8.7 Reflexão
+
+<Reflexao
+  sprint={2}
+  lab="D"
+  palavrasMin={150}
+  palavrasMax={250}
+  pergunta="Imagine que o agente bagunçou um deploy em produção. Você precisa entender: o que ele decidiu? por quê? em que ordem? quem aprovou cada passo? Compare DUAS arquiteturas: (1) agente atualiza um banco de dados direto vs (2) agente só append em event store. Em qual cenário você responde essas 4 perguntas em 30 segundos, e em qual você passa o final de semana inteiro tentando reconstruir?"
+/>
+
+---
+
+## 9. Recapitulando o Sprint 2
+
+<Diagrama legenda="O harness agora tem CONTRATO + MÁQUINA + LOG. O agente perde a capacidade de mentir sobre o que fez">
+{`flowchart TB
+    subgraph Sprint1["Sprint 1 (já existe)"]
+        H1[Hooks: barram comandos]
+        M[Motor: avalia propostas]
+    end
+
+    subgraph Sprint2["Sprint 2 (novo)"]
+        SC[Sprint Contract<br/>agente assina antes]
+        SM[State Machine<br/>só transições válidas]
+        ES[Event Store<br/>diário imutável]
+    end
+
+    SC -.->|delimita escopo| M
+    SM -.->|valida transições| M
+    ES -.->|registra decisões| M`}
+</Diagrama>
+
+Você acabou de:
+- ✅ Eliminar Vitória Prematura via **Sprint Contract** com critérios binários
+- ✅ Eliminar transições impossíveis via **State Machine** que LANÇA erro
+- ✅ Eliminar "agente mentindo sobre o passado" via **Event Store** append-only
+
+O Sprint 3 vai introduzir **múltiplos agentes em paralelo** trabalhando sob esses mesmos contratos.
+
+---
+
+## 10. Avaliação Final
+
+### 10.1 O Fiscal
+
+<Terminal comando="npm test; npm run gate -- --sprint=2">
+{`Tests  20 passed (20)  ← 8 do Sprint 1 + 12 do Sprint 2
+Resultado: 10/10 critérios.
+Nota: A`}
+</Terminal>
+
+### 10.2 O Juiz
+
+Suas 4 Reflexões (Labs A, B, C, D) — cole no LLM-as-Judge usando modelo **diferente** do que encomendou o código.
+
+### 10.3 Nota final
+
+Menor entre Fiscal e Juiz. Mínimo: **B**. Sprint 1 não pode regredir (Efeito Catraca).
+
+---
+
+## 11. Glossário deste Sprint
+
+| Termo | O que é (1 frase) |
+|---|---|
+| **Sprint Contract** | "Termo de trabalho" do agente: whatToChange, whatNotToChange, passCriteria, exclusions. |
+| **One Shot Hero** | Anti-padrão: agente tenta resolver tudo num turno só. Janela enche, qualidade despenca. |
+| **Vitória Prematura** | Agente declara "pronto" antes de estar pronto, sob pressão da janela cheia. |
+| **Spec-First / Anchored / Source** | 3 níveis de rigor com especificação (namorando / noivado / casamento). |
+| **State Machine** | Tabela de transições válidas entre estados. Tentar transição inválida = erro. |
+| **Event Sourcing** | Estado deriva de log de eventos, não de banco mutável. Replay determinístico grátis. |
+| **Event Store** | Estrutura append-only que guarda os eventos. Só cresce, nunca muda. |
+| **Projeção** | Função pura `eventos[] → estado`. Sem mutação, sem efeito colateral. |
+| **Bootstrap Contract** | Checks obrigatórios antes de começar feature nova (ambiente OK, testes verdes). |
+| **Efeito Catraca** | Cada melhoria é permanente. Sprint 1 não pode quebrar quando você faz Sprint 2. |
+
+Para definições completas, abra o [Glossário](/glossario).
+
+---
+
+## 12. Preparando o Sprint 3
+
+No Sprint 3 você vai aprender a fazer **vários agentes trabalhando em paralelo** sem se atropelarem, e a receber **mensagens externas** (webhooks) de forma resiliente. Antes:
+
+- ✅ Sprint 2 com nota mínima **B**
+- ✅ Sprint 1 ainda passando (rode `npm run gate -- --sprint=1` para confirmar)
+- ⚠️ Instale **Docker Desktop** se ainda não tem — Sprint 3 sobe PostgreSQL e Redis
+
+> Você agora tem **contrato + memória imutável**. No próximo Sprint, vai ter **concorrência segura**.

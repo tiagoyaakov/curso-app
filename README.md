@@ -1,36 +1,125 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# curso-app
 
-## Getting Started
+> Apostila web do curso **Engenharia e Arquitetura de Harness para Sistemas Driven AI**.
+>
+> Next.js 16 (App Router) + Tailwind v4 + shadcn/ui + MDX + Supabase (auth + persistência).
 
-First, run the development server:
+---
+
+## Stack
+
+- **Framework:** Next.js 16 (App Router + Turbopack)
+- **Tipos:** TypeScript estrito
+- **Estilo:** Tailwind CSS v4 (CSS-first)
+- **Componentes:** shadcn/ui
+- **Conteúdo:** MDX com componentes React custom
+- **Diagramas:** Mermaid (client-side)
+- **Animações:** Framer Motion
+- **Backend:** Supabase (auth + Postgres + RLS)
+- **Tema:** Dark mode default (paleta violet/fuchsia/rose premium)
+
+---
+
+## Setup local
 
 ```bash
+git clone https://github.com/SEU-USUARIO/curso-app.git
+cd curso-app
+npm install
+cp .env.example .env.local
+# Preencha as variáveis em .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abra http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Variáveis de ambiente
 
-## Learn More
+Veja `.env.example`. Você precisa de:
 
-To learn more about Next.js, take a look at the following resources:
+- `NEXT_PUBLIC_LEARNING_HARNESS_URL` — URL do repositório `learning-harness` que o aluno clona.
+- `NEXT_PUBLIC_SUPABASE_URL` — URL do seu projeto Supabase (opcional; sem isso o app cai em modo localStorage anônimo).
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — chave pública anônima do Supabase.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Setup Supabase (opcional, mas recomendado)
 
-## Deploy on Vercel
+1. Crie projeto grátis em [supabase.com](https://supabase.com).
+2. Em **Settings → API**, copie `Project URL` e `anon public key` para `.env.local`.
+3. No **SQL Editor** do Supabase, cole e rode o conteúdo de [`supabase/schema.sql`](supabase/schema.sql).
+4. Pronto.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Sem Supabase, o app funciona em modo "anônimo localStorage" (sem login, progresso só no navegador).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## Deploy
+
+Pensado para Vercel. Veja o [DEPLOY.md](../DEPLOY.md) para passo-a-passo completo.
+
+---
+
+## Estrutura
+
+```
+curso-app/
+├── app/                    ← rotas Next.js
+│   ├── page.tsx            ← home
+│   ├── sprint/[id]/        ← sprints (MDX dinâmico)
+│   ├── comecar/            ← setup do aluno
+│   ├── glossario/          ← termos com tooltip
+│   └── sobre/              ← sobre o curso
+├── components/
+│   ├── layout/             ← header, footer, sidebar
+│   ├── curso/              ← componentes-âncora (PedidoAoAgente, Checklist, etc)
+│   └── ui/                 ← shadcn/ui
+├── content/
+│   ├── sprints/01.mdx ... 04.mdx
+│   └── glossario.json      ← 75 termos
+├── lib/
+│   ├── config.ts           ← env vars + helpers
+│   ├── glossario.ts
+│   ├── persistencia.ts     ← Supabase + localStorage fallback
+│   └── supabase/
+├── supabase/
+│   └── schema.sql          ← cola no SQL Editor do Supabase
+└── scripts/
+    └── screenshot.mjs      ← utilitário para capturas em dev
+```
+
+---
+
+## Scripts
+
+| Comando | Função |
+|---|---|
+| `npm run dev` | Dev server (Turbopack) |
+| `npm run build` | Build de produção |
+| `npm start` | Roda o build localmente |
+| `node scripts/screenshot.mjs` | Captura PNGs das páginas (dev) |
+
+---
+
+## Componentes-âncora (uso em MDX)
+
+Em qualquer arquivo MDX você pode usar:
+
+```mdx
+<Aviso variante="info" titulo="Atenção">...</Aviso>
+<PedidoAoAgente titulo="Lab A">{`texto do pedido`}</PedidoAoAgente>
+<Checklist sprint={1} lab="A" itens={[...]} />
+<Reflexao sprint={1} lab="A" pergunta="..." />
+<PTP numero={1} titulo="..." questoes={[...]} />
+<Terminal comando="...">{`saida`}</Terminal>
+<Diagrama legenda="...">{`mermaid code`}</Diagrama>
+<Termo k="harness">harness</Termo>
+```
+
+---
+
+## Licença
+
+MIT.

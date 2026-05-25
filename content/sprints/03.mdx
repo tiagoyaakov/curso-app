@@ -1,0 +1,479 @@
+export const metadata = {
+  titulo: "Sprint 3 — Fluxo",
+  subtitulo: "Concorrência segura e resiliência de borda",
+  duracao: "10 horas",
+};
+
+# Sprint 3 — Fluxo
+## Concorrência segura e resiliência de borda
+
+<Aviso variante="info" titulo="Informações deste Sprint">
+**Duração estimada:** 10 horas.
+**Pré-requisito:** Sprints 1 e 2 com nota **B+**.
+**Entregável:** Webhook seguro + fila com retry inteligente + debouncer de mensagens + regras escopadas. Mínimo 15 testes verdes adicionais.
+**Aprovação:** Grade A–D. Mínimo **B**. Efeito Catraca: nada do que veio antes pode regredir.
+</Aviso>
+
+---
+
+## 0. Por que este Sprint existe
+
+Até agora seu harness governa **um agente** trabalhando **uma tarefa por vez** num ambiente controlado. Funciona bem em demo. Em produção, isso quebra em 3 cenários simultâneos:
+
+1. **Vários agentes trabalhando em paralelo** (ex: Codex orquestrando 12 features ao mesmo tempo).
+2. **Mensagens chegando da internet** (WhatsApp, Slack, GitHub) que você precisa receber sem perder e sem deixar o servidor cair sob carga.
+3. **APIs externas falhando** intermitentemente (rate limit, timeout, indisponibilidade) sem queimar dinheiro em retries cegos.
+
+O Sprint 3 ensina os **3 padrões de borda** que separam um sistema agêntico de brinquedo de um sistema em produção.
+
+<Diagrama legenda="A arquitetura de borda completa do Sprint 3">
+{`flowchart LR
+    A[Mundo externo<br/>WhatsApp, Slack, etc] -->|POST webhook| B[Verifica<br/>HMAC]
+    B -->|✓| C[Debouncer<br/>consolida msgs]
+    B -->|✗| X[Rejeita 401]
+    C -->|batch após 800ms| D[Fila assíncrona]
+    D --> E[Worker]
+    E -->|sucesso| OK
+    E -->|transiente| R[Retry<br/>exp backoff + jitter]
+    E -->|permanente| DLQ[Dead Letter Queue]
+    R -.->|após N tentativas| DLQ`}
+</Diagrama>
+
+---
+
+## 1. Os 3 conceitos-âncora
+
+### 1.1 Webhook desacoplado
+
+Provedores como Meta dão até **4 segundos** para você responder `200 OK`. Seu agente leva 5–30s para processar. Se você processa **inline**, o webhook timeouta → Meta re-envia → você processa **de novo** → loop infinito gastando dinheiro.
+
+A regra é:
+1. Webhook **valida e enfileira** (rápido).
+2. Worker **consome a fila** (devagar, tudo bem).
+
+Para validar quem mandou, usa-se **<Termo k="hmac">HMAC-SHA256</Termo>**: provedor assina o payload com chave secreta, você recalcula e compara. Mas **em tempo constante** — comparar string normal vaza informação sobre quantos caracteres bateram (timing attack).
+
+### 1.2 Erros transientes vs permanentes
+
+| Erro | Tipo | O que fazer |
+|---|---|---|
+| `408 Timeout` | Transiente | Retenta com backoff |
+| `429 Too Many Requests` | Transiente | Retenta com backoff |
+| `500/502/503/504` | Transiente | Retenta com backoff |
+| `400 Bad Request` | Permanente | DLQ direto |
+| `401 Unauthorized` | Permanente | DLQ direto |
+| `403 Forbidden` | Permanente | DLQ direto |
+| `422 Unprocessable` | Permanente | DLQ direto |
+
+**Confundir os dois é desastre:**
+- Tratar 401 como transiente = loop infinito (sua chave está errada, retentar não vai mudar).
+- Tratar timeout como permanente = perde mensagem por hiccup de rede.
+
+E o backoff precisa ter **jitter** (variação aleatória). Sem jitter, mil clientes errando na mesma hora retentam exatamente juntos — o famoso **thundering herd**.
+
+### 1.3 Debouncer (consolidação de mensagens)
+
+Usuário em chat raramente manda 1 mensagem completa. Manda 4 fragmentos em 3 segundos:
+
+```
+"Oi"
+"Pode me ajudar?"
+"Meu pedido"
+"não chegou"
+```
+
+Sem debouncer: 4 turnos do agente, 4 respostas confusas, gasto 4×.
+Com debouncer: aguarda **800ms de silêncio**, consolida tudo em 1 input, agente processa 1×.
+
+A implementação é simples mas tem uma sutileza: **timestamp matching**. Múltiplas chamadas competindo precisam decidir quem é o "vencedor" (quem vai processar). A última a entrar vence; as anteriores se cancelam sozinhas.
+
+---
+
+<PTP
+  numero={1}
+  titulo="Classifique os erros HTTP"
+  tempoEstimado="5 min"
+  questoes={[
+    {
+      pergunta: "API retornou 429 Too Many Requests.",
+      opcoes: [
+        { id: "a", texto: "Retentar com backoff exponencial.", correta: true },
+        { id: "b", texto: "DLQ — você foi banido." },
+        { id: "c", texto: "Logar e ignorar." },
+      ],
+      resposta: <>429 = rate limit. <strong>Transiente.</strong> O provedor está pedindo pra você esperar. Retentar com backoff resolve.</>,
+    },
+    {
+      pergunta: "API retornou 401 Unauthorized.",
+      opcoes: [
+        { id: "a", texto: "Retentar 3 vezes." },
+        { id: "b", texto: "DLQ direto — sua chave está errada/expirada.", correta: true },
+        { id: "c", texto: "Tentar de novo com outro header." },
+      ],
+      resposta: <>401 = autenticação falhou. <strong>Permanente.</strong> Retentar não resolve — sua chave é inválida. Vai pra DLQ pra você intervir.</>,
+    },
+    {
+      pergunta: "API retornou 503 Service Unavailable.",
+      opcoes: [
+        { id: "a", texto: "Retentar com backoff.", correta: true },
+        { id: "b", texto: "DLQ." },
+        { id: "c", texto: "Logar." },
+      ],
+      resposta: <>503 = servidor indisponível temporariamente. <strong>Transiente.</strong> Pode resolver sozinho em segundos.</>,
+    },
+  ]}
+/>
+
+---
+
+## 5. Lab A — Regras escopadas em `.claude/rules/`
+
+### 5.1 O que você vai conquistar
+
+Pasta `.claude/rules/` com regras específicas por área (`api.md`, `banco.md`, `testes.md`). O agente lê **só** o arquivo da área onde está editando — não polui o contexto global.
+
+### 5.2 Por que isto importa
+
+`CLAUDE.md` global é limitado a 200 linhas (acima disso, **Dumb Zone**). Mas você pode ter 50 regras específicas só para a área de banco. Solução: regras **escopadas por pasta**. O agente carrega `.claude/rules/banco.md` **apenas** quando edita arquivos em `src/banco/`.
+
+### 5.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab A — Regras escopadas">
+{`Mesmo repositório.
+
+Tarefa: criar 3 arquivos de regras escopadas em .claude/rules/
+
+1. .claude/rules/api.md (max 40 linhas)
+   Regras para código em src/api/:
+   - Toda rota DEVE validar input com schema (zod ou similar).
+   - Toda resposta DEVE incluir Content-Type explícito.
+   - NUNCA expor stack trace em produção.
+
+2. .claude/rules/banco.md (max 40 linhas)
+   Regras para código em src/banco/:
+   - Toda query DEVE ser parametrizada (não interpolar string).
+   - Toda transação DEVE ter rollback definido.
+   - NUNCA fazer DROP/TRUNCATE sem confirmação explícita.
+
+3. .claude/rules/testes.md (max 40 linhas)
+   Regras para tests/:
+   - Cada teste DEVE ter exatamente UM expect (clareza).
+   - PROIBIDO .skip, .only, xit (Hook 02 do Sprint 1 bloqueia).
+   - Sempre cleanup com afterEach.
+
+Adicione também uma seção em AGENTS.md (no final) chamada "Regras escopadas por área" com links para esses 3 arquivos.
+
+Rode: npm run gate -- --sprint=3
+Reporte a saída literal.`}
+</PedidoAoAgente>
+
+### 5.4 Sua checklist
+
+<Checklist
+  sprint={3}
+  lab="A"
+  itens={[
+    { id: "rules-api", texto: <>Existe <code>.claude/rules/api.md</code> com pelo menos 3 regras?</> },
+    { id: "rules-banco", texto: <>Existe <code>.claude/rules/banco.md</code> com pelo menos 3 regras?</> },
+    { id: "rules-testes", texto: <>Existe <code>.claude/rules/testes.md</code> com pelo menos 3 regras?</> },
+    { id: "tamanho", texto: <>Cada arquivo tem entre 5 e 50 linhas?</> },
+    { id: "agents-md-secao", texto: <><code>AGENTS.md</code> tem nova seção "Regras escopadas por área"?</> },
+    { id: "pt-br", texto: <>Tudo em português?</> },
+  ]}
+/>
+
+### 5.5 Reflexão
+
+<Reflexao
+  sprint={3}
+  lab="A"
+  pergunta="Imagine que CLAUDE.md global cresce até 800 linhas com TODAS as regras do projeto. O que acontece com a atenção do agente em sessão longa? Compare com a estratégia de regras escopadas (lidas só quando editando aquela área). Use o conceito de Lost in the Middle."
+/>
+
+---
+
+## 6. Lab B — Webhook com HMAC
+
+### 6.1 O que você vai conquistar
+
+Função `verificarAssinatura()` em `src/sprint3/webhook.ts` que valida HMAC-SHA256 **em tempo constante** (resistente a timing attacks).
+
+### 6.2 O contrato
+
+<Diagrama legenda="Fluxo de verificação HMAC">
+{`flowchart LR
+    A[Provedor manda<br/>POST + signature header] --> B[Você recalcula HMAC<br/>com chave secreta]
+    B --> C{timingSafeEqual<br/>signature vs calculado}
+    C -->|igual| D[200 OK<br/>enfileira]
+    C -->|diferente| E[401 Unauthorized]`}
+</Diagrama>
+
+### 6.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab B — Webhook HMAC">
+{`Implementar src/sprint3/webhook.ts (esqueleto já existe).
+
+Função verificarAssinatura(p: WebhookPayload): boolean
+- p.signature precisa começar com "sha256=" — caso contrário FALSE.
+- Calcule HMAC-SHA256 do p.rawBody usando p.segredo.
+- Converta ambos (esperado e recebido) para Buffer hex.
+- Use crypto.timingSafeEqual para comparar (NÃO use ===).
+- Se tamanhos diferentes, retorne FALSE antes de comparar (timingSafeEqual lança erro).
+
+Restrições:
+- TypeScript estrito.
+- Import APENAS de node:crypto (sem deps externas).
+- Comentários em português.
+- Tamanho-alvo: 25-40 linhas.
+
+Rode: npm test --silent -- tests/sprint3 -t "Lab B"
+Reporte saída literal.`}
+</PedidoAoAgente>
+
+### 6.4 Sua checklist
+
+<Checklist
+  sprint={3}
+  lab="B"
+  itens={[
+    { id: "import-crypto", texto: <>Importa <code>createHmac</code> e <code>timingSafeEqual</code> de <code>node:crypto</code>?</> },
+    { id: "prefix-check", texto: <>Verifica que signature começa com <code>"sha256="</code>?</> },
+    { id: "raw-body", texto: <>Usa <code>p.rawBody</code> (Buffer) — não converte pra string antes?</> },
+    { id: "timing-safe", texto: <>Comparação usa <code>timingSafeEqual</code> (NÃO <code>===</code>)?</> },
+    { id: "length-check", texto: <>Verifica que tamanhos batem ANTES de chamar timingSafeEqual?</> },
+    { id: "pt-br", texto: <>Comentário em português?</> },
+  ]}
+/>
+
+### 6.5 Reflexão
+
+<Reflexao
+  sprint={3}
+  lab="B"
+  pergunta="O que é um timing attack e por que comparar strings com === é vulnerável? Imagine que sua função leva 1.2ms quando o primeiro caractere bate e 1.0ms quando não bate — como um atacante usa isso para descobrir a assinatura caractere por caractere?"
+/>
+
+---
+
+## 7. Lab C — Fila com retry inteligente
+
+### 7.1 O que você vai conquistar
+
+Três funções em `src/sprint3/queue.ts`:
+- `classificarErro(status)` — transiente ou permanente?
+- `calcularBackoff(tentativa, cfg)` — exponencial com jitter
+- `tentar(executor, cfg)` — loop com retry orquestrado
+
+### 7.2 Por que isto importa
+
+Em produção, ~5% das chamadas externas falham. Sem retry inteligente, você perde 5% do tráfego. Com retry burro, você multiplica custos. Com retry **inteligente**, você só retenta o que pode dar certo e descarta o resto.
+
+### 7.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab C — Queue + Retry">
+{`Implementar src/sprint3/queue.ts (esqueleto + tipos prontos).
+
+classificarErro(httpStatus: number): "transiente" | "permanente"
+- TRANSIENTES = [408, 429, 500, 502, 503, 504]
+- PERMANENTES = [400, 401, 403, 404, 405, 422]
+- Status desconhecido: trata como "permanente" (não retenta cegamente)
+
+calcularBackoff(tentativa, cfg): number
+- Exponencial: cfg.baseMs * 2^(tentativa-1), com Math.min para respeitar cfg.capMs
+- Adiciona jitter ±25% (Math.random()*2-1 multiplicado por 25% do valor)
+- Math.max(0, ...) para nunca retornar negativo
+
+tentar(executor, cfg): Promise<{ ok, tentativas, ultimoStatus? }>
+- Loop de 1 até cfg.maxTentativas:
+  - Chama executor()
+  - sucesso → return { ok: true, tentativas }
+  - permanente → return { ok: false, tentativas, ultimoStatus } (NÃO retenta)
+  - transiente E não é última tentativa → await setTimeout(calcularBackoff) e segue loop
+  - transiente E última tentativa → return { ok: false, ... }
+
+Restrições:
+- TypeScript estrito.
+- Sem deps externas.
+- Comentários em português.
+
+Rode: npm test --silent -- tests/sprint3 -t "Lab C"
+Reporte saída literal.`}
+</PedidoAoAgente>
+
+### 7.4 Sua checklist
+
+<Checklist
+  sprint={3}
+  lab="C"
+  itens={[
+    { id: "sets", texto: <>Usa <code>Set</code> para listas de códigos (não array com <code>.includes</code>)?</> },
+    { id: "default-permanente", texto: <>Status desconhecido cai em "permanente" (fail-safe)?</> },
+    { id: "exponencial", texto: <><code>calcularBackoff</code> usa <code>Math.pow(2, tentativa-1)</code> e <code>Math.min</code> com cap?</> },
+    { id: "jitter", texto: <>Tem jitter (<code>Math.random()</code>) — não é puramente determinístico?</> },
+    { id: "nao-retenta-permanente", texto: <><code>tentar</code> RETORNA imediatamente em erro permanente (não retenta)?</> },
+    { id: "pt-br", texto: <>Comentários em português?</> },
+  ]}
+/>
+
+### 7.5 Reflexão
+
+<Reflexao
+  sprint={3}
+  lab="C"
+  palavrasMin={150}
+  palavrasMax={250}
+  pergunta="Explique o thundering herd problem: 10.000 clientes seus erram ao mesmo tempo (provedor caiu por 5s). Todos vão retentar exatamente quando o backoff zerar. Sem jitter, 10.000 requisições chegam simultaneamente, o provedor cai de novo, loop. Como o jitter aleatório (±25%) resolve isso? E por que 25% e não 100%?"
+/>
+
+---
+
+## 8. Lab D — Debouncer de mensagens
+
+### 8.1 O que você vai conquistar
+
+Função `criarDebouncer(janelaMs)` em `src/sprint3/debouncer.ts` que consolida múltiplas mensagens rápidas de um mesmo usuário em UM batch.
+
+### 8.2 O contrato
+
+<Diagrama legenda="3 mensagens rápidas → 1 batch consolidado após 800ms de silêncio">
+{`sequenceDiagram
+    participant U as Usuário
+    participant D as Debouncer
+    participant A as Agente
+
+    U->>D: "Oi" (t=0ms)
+    Note over D: timer 800ms armado
+    U->>D: "Pode" (t=200ms)
+    Note over D: timer cancelado, novo armado
+    U->>D: "ajudar?" (t=400ms)
+    Note over D: timer cancelado, novo armado
+    Note over D: 800ms de silêncio...
+    D->>A: "Oi Pode ajudar?" (batch único)
+    A-->>U: 1 resposta consolidada`}
+</Diagrama>
+
+### 8.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab D — Debouncer">
+{`Implementar src/sprint3/debouncer.ts (esqueleto + tipos prontos).
+
+criarDebouncer(janelaMs: number): { receber(m): Promise<string | null> }
+
+Comportamento:
+- Mantém Map<userId, Estado> em memória.
+- Estado por user: { buffer: string[], resolvers: callbacks[], timer: Timeout|null }
+- A cada receber():
+  1. Acumula texto no buffer do user
+  2. Adiciona o resolve da promise no array de resolvers
+  3. Cancela timer anterior (clearTimeout)
+  4. Agenda novo timer de janelaMs:
+     - Quando dispara: limpa estado, concatena buffer com " ",
+       resolve a ÚLTIMA promise com o batch consolidado,
+       resolve as anteriores com null (elas "perderam")
+
+Restrições:
+- TypeScript estrito.
+- In-memory only (Map). Sem Redis no Sprint 3 (vem no Sprint 5).
+- Comentários em português.
+
+Rode: npm test --silent -- tests/sprint3 -t "Lab D"
+Reporte saída literal.`}
+</PedidoAoAgente>
+
+### 8.4 Sua checklist
+
+<Checklist
+  sprint={3}
+  lab="D"
+  itens={[
+    { id: "map", texto: <>Usa <code>Map&lt;string, Estado&gt;</code> para isolar usuários?</> },
+    { id: "clear-timeout", texto: <>Cancela timer anterior com <code>clearTimeout</code> antes de armar novo?</> },
+    { id: "ultima-vence", texto: <>Última promise recebe o batch; anteriores recebem <code>null</code>?</> },
+    { id: "limpa-antes", texto: <>Limpa o estado do Map ANTES de resolver as promises (evita race condition)?</> },
+    { id: "isolamento", texto: <>userId diferente NÃO consolida (cada user tem buffer próprio)?</> },
+    { id: "pt-br", texto: <>Comentários em português?</> },
+  ]}
+/>
+
+### 8.5 Reflexão
+
+<Reflexao
+  sprint={3}
+  lab="D"
+  pergunta="Por que processar cada mensagem fragmentada separadamente seria DESASTRE de UX e de custos? Calcule: usuário típico manda 3 fragmentos por turno de conversa. Sem debouncer, agente processa 3× mais turnos. Em escala (10k mensagens/dia), quantos turnos extras por dia? E quantos dólares isso custa se cada turno é R$0,02?"
+/>
+
+---
+
+## 9. Recapitulando
+
+<Diagrama legenda="O harness agora cobre BORDA. Pronto para Sprint 4 (Inteligência)">
+{`flowchart TB
+    subgraph S1["Sprint 1 (Alicerce)"]
+        H[Hooks + Motor]
+    end
+    subgraph S2["Sprint 2 (Contrato)"]
+        C[Contract + State + Events]
+    end
+    subgraph S3["Sprint 3 (Fluxo)"]
+        R[Rules escopadas]
+        W[Webhook + HMAC]
+        Q[Queue + Retry]
+        D[Debouncer]
+    end
+    S1 --> S2 --> S3`}
+</Diagrama>
+
+Você acabou de:
+- ✅ Reduzir contexto poluído via **regras escopadas por área**
+- ✅ Receber webhook seguro com **HMAC tempo-constante**
+- ✅ Retry inteligente com **classificação transiente/permanente** e jitter
+- ✅ Consolidação de mensagens com **debouncer**
+
+---
+
+## 10. Avaliação Final
+
+<Terminal comando="npm test; npm run gate -- --sprint=3">
+{`Tests  40 passed (40)  ← 8 S1 + 15 S2 + 17 S3
+Resultado: 4/4 critérios.
+Nota: A`}
+</Terminal>
+
+Cole as 4 Reflexões no LLM-as-Judge (modelo diferente).
+
+---
+
+## 11. Glossário deste Sprint
+
+| Termo | O que é (1 frase) |
+|---|---|
+| **HMAC-SHA256** | Carimbo criptográfico que prova quem mandou. Calculado com chave secreta + payload. |
+| **Timing attack** | Atacante mede milisegundos da resposta para descobrir senha caractere por caractere. |
+| **timingSafeEqual** | Comparação de buffers em tempo constante. Imune a timing attack. |
+| **Erro transiente** | Falha temporária (rede, rate limit). Retentar resolve. |
+| **Erro permanente** | Falha de lógica (chave errada, payload inválido). Retentar NÃO resolve. |
+| **Backoff exponencial** | Espera dobra a cada retry. 1s, 2s, 4s, 8s... |
+| **Jitter** | Variação aleatória no backoff. Evita thundering herd. |
+| **Thundering herd** | Milhares de clientes retentando ao mesmo tempo, derrubando provedor de novo. |
+| **DLQ (Dead Letter Queue)** | Fila para mensagens que falharam definitivamente. Você revisa depois. |
+| **Debouncer** | Consolida múltiplas mensagens rápidas em UM batch após período de silêncio. |
+| **Regra escopada** | Arquivo em `.claude/rules/X.md` lido só quando o agente edita arquivos de X. |
+
+Para definições completas, abra o [Glossário](/glossario).
+
+---
+
+## 12. Preparando o Sprint 4
+
+Próximo Sprint = **inteligência do harness**. Você vai aprender:
+- Detectar e quebrar loops infinitos do agente (Watchdog)
+- Pausar o agente para aprovação humana (HumanOps)
+- Memória persistente em arquivos Markdown
+- LLM-as-a-Judge para avaliar respostas
+
+Antes:
+- ✅ Sprint 3 com nota mínima **B**
+- ✅ Sprints 1 e 2 ainda passando
+
+> Você agora tem **borda resiliente**. No próximo Sprint, vai ter **inteligência defensiva**.

@@ -1,0 +1,428 @@
+export const metadata = {
+  titulo: "Sprint 4 — Inteligência",
+  subtitulo: "Quebrar loops, pausar para humano, avaliar respostas",
+  duracao: "10 horas",
+};
+
+# Sprint 4 — Inteligência
+## Quebrar loops, pausar para humano, avaliar respostas
+
+<Aviso variante="info" titulo="Informações deste Sprint">
+**Duração estimada:** 10 horas.
+**Pré-requisito:** Sprints 1, 2 e 3 com nota **B+**.
+**Entregável:** Detector de loops + Approval Gate + Tríade RAG funcionando. Mínimo 13 testes verdes adicionais (total 53+).
+**Aprovação:** Grade A–D. Mínimo **B**. Efeito Catraca: nada do que veio antes pode regredir.
+</Aviso>
+
+---
+
+## 0. Por que este Sprint é o último — e o mais importante
+
+Você chegou aqui com um harness que:
+- ✅ Sprint 1: **barra ações perigosas** do agente.
+- ✅ Sprint 2: **força contrato formal** e **registra cada decisão em log imutável**.
+- ✅ Sprint 3: **recebe mensagens** com segurança e **trata falhas externas** com inteligência.
+
+Falta uma coisa: o **agente em si pode quebrar**. Pode entrar em loop infinito gastando R$2.000 em 10 minutos. Pode chegar numa decisão que **só humano** pode tomar. Pode responder com confiança absoluta uma alucinação total.
+
+O Sprint 4 ensina os **3 mecanismos defensivos** finais:
+
+1. **Detectar e quebrar loops** antes do prejuízo (Lab A).
+2. **Pausar o agente** para aprovação humana programaticamente (Lab B).
+3. **Avaliar a qualidade** da resposta automaticamente (Lab D, com Tríade RAG).
+
+<Diagrama legenda="Os 3 mecanismos de defesa final do Sprint 4 — completam o harness">
+{`flowchart TB
+    Agente[Agente trabalhando] --> A{DebounceHook}
+    A -->|loop detectado| Kill[Aborta + alerta]
+    A -->|ok| B{Approval Gate}
+    B -->|risco alto| H[Pausa + Webhook humano]
+    H -->|aprovado| C[Executa]
+    H -->|rejeitado/timeout| X[Rejeita]
+    B -->|risco baixo/médio| C
+    C --> D{RAG Eval}
+    D -->|alucinação| W[Alerta + retry]
+    D -->|groundeada| OK[Entrega]`}
+</Diagrama>
+
+---
+
+## 1. Os 3 conceitos-âncora
+
+### 1.1 Os 3 perfis de loop de agente
+
+Loop infinito do agente custa dinheiro **rápido**. Os 3 padrões:
+
+| Perfil | O que parece | Custo médio antes de detectar |
+|---|---|---|
+| **Exact Repeat** | Agente chama `fetch("url")` 50× igual | R$ 80 em 5 min |
+| **Jitter Loop** | Agente varia 1 parâmetro a cada chamada (`fetch("url?_=123")`, `?_=124`...) | R$ 400 em 30 min (passa por detectores simples) |
+| **Stall Loop** | Agente pensa pensa pensa sem agir; janela enche; ele "recomeça" | R$ 1500 em horas |
+
+O **Exact Repeat** é o mais comum e o mais fácil de detectar: hash da chamada + janela deslizante + threshold. É o que você vai construir no **Lab A**.
+
+### 1.2 Approval Gate programático
+
+Existem 2 jeitos de pedir aprovação:
+
+**❌ Errado (conversacional):**
+> Agente escreve: "Posso deletar a tabela `users`? Responda sim ou não."
+
+Problema: o agente continua "pensando" no chat. Se o usuário demora ou esquece, o agente pode **interpretar silêncio como sim** sob pressão de contexto. E nada bloqueia ele de simplesmente fazer mesmo assim.
+
+**✅ Certo (programático):**
+> Sistema intercepta a chamada `deleteTable("users")`. Pausa a execução. Salva checkpoint. Envia webhook out-of-band para o operador. **Só desbloqueia** quando recebe resposta autenticada. Tem timeout.
+
+O agente **não consegue** prosseguir sozinho. Não tem como — o controle está fora dele.
+
+### 1.3 Tríade RAG: como saber se a resposta é boa?
+
+Quando agente responde, 3 perguntas separadas:
+
+| Pergunta | Métrica | Mede |
+|---|---|---|
+| Os contextos recuperados eram relevantes para a query? | **Context Relevance** | Qualidade da BUSCA |
+| A resposta de fato responde a query? | **Answer Relevance** | Qualidade da GERAÇÃO |
+| A resposta usa SÓ o que estava nos contextos? | **Faithfulness** | Ausência de ALUCINAÇÃO |
+
+Você pode ter **faithfulness 1.0** (não inventou nada) e **answer relevance 0.1** (não respondeu a pergunta). Por isso são 3 métricas separadas.
+
+---
+
+<PTP
+  numero={1}
+  titulo="Identifique o perfil de loop"
+  tempoEstimado="10 min"
+  questoes={[
+    {
+      pergunta: <>Log do agente:<br/><code>fetch(/api/x) → fetch(/api/x) → fetch(/api/x) → ... 50×</code></>,
+      opcoes: [
+        { id: "a", texto: "Exact Repeat — chamadas idênticas.", correta: true },
+        { id: "b", texto: "Jitter Loop — varia algo." },
+        { id: "c", texto: "Stall Loop — pensa sem agir." },
+      ],
+      resposta: <>Clássico Exact Repeat. Hash da chamada + threshold &gt;= 2 já detecta na 2ª.</>,
+    },
+    {
+      pergunta: <>Log:<br/><code>fetch(/api?id=1) → fetch(/api?id=2) → fetch(/api?id=3) → ... 100×</code></>,
+      opcoes: [
+        { id: "a", texto: "Exact Repeat — fetch repete." },
+        { id: "b", texto: "Jitter Loop — varia parâmetro a cada chamada.", correta: true },
+        { id: "c", texto: "Comportamento normal — está iterando IDs." },
+      ],
+      resposta: <>Jitter Loop. Hash exato NÃO bate. Precisa detector semântico (embedding de similaridade) ou heurística de "mesmo padrão, parâmetro sequencial".</>,
+    },
+    {
+      pergunta: <>Log:<br/><code>think... think... think... (sem nenhuma chamada de ferramenta por 5 minutos)</code></>,
+      opcoes: [
+        { id: "a", texto: "Stall Loop — pensa sem agir.", correta: true },
+        { id: "b", texto: "Está raciocinando profundamente." },
+        { id: "c", texto: "Está esperando input do usuário." },
+      ],
+      resposta: <>Stall Loop. Mais difícil de detectar — precisa medir "progresso lógico real" (não só tempo). Watchdog Agent (Sprint 5) faz isso melhor.</>,
+    },
+  ]}
+/>
+
+---
+
+## 5. Lab A — DebounceHook (quebrar loops do agente)
+
+### 5.1 O que você vai conquistar
+
+Função `criarDebounceHook(tamanhoJanela, maxDuplicatas)` em `src/sprint4/debounce-hook.ts` que detecta Exact Repeats e BLOQUEIA antes do prejuízo.
+
+### 5.2 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab A — DebounceHook">
+{`Implementar src/sprint4/debounce-hook.ts (esqueleto + tipos prontos).
+
+criarDebounceHook(tamanhoJanela, maxDuplicatas): DebounceHook
+- Mantém array privado 'historico' de fingerprints (strings).
+- fingerprint(c) = ferramenta + "::" + JSON.stringify(argumentos)
+- verificar(c):
+  1. Calcula fp
+  2. historico.push(fp)
+  3. Se historico.length > tamanhoJanela: historico.shift() (janela deslizante)
+  4. Conta quantas vezes fp aparece no historico atual
+  5. Se >= maxDuplicatas: return { permitido: false, motivo: "Loop detectado: ..." }
+  6. Senão: return { permitido: true }
+- resetar(): zera historico
+
+Restrições:
+- TS estrito.
+- Closure (não exporta classe — só a factory function).
+- Comentários em PT-BR.
+
+Rode: npm test --silent -- tests/sprint4 -t "Lab A"`}
+</PedidoAoAgente>
+
+### 5.3 Sua checklist
+
+<Checklist
+  sprint={4}
+  lab="A"
+  itens={[
+    { id: "fingerprint", texto: <>Usa JSON.stringify dos argumentos no fingerprint (não toString)?</> },
+    { id: "shift", texto: <>Aplica <code>shift()</code> quando passa do tamanho da janela?</> },
+    { id: "conta-na-janela", texto: <>Conta duplicatas SÓ no histórico atual (não em histórico apagado)?</> },
+    { id: "motivo-claro", texto: <>Motivo do bloqueio inclui o nome da ferramenta?</> },
+    { id: "resetar-funciona", texto: <><code>resetar()</code> zera o histórico de verdade?</> },
+    { id: "pt-br", texto: <>Comentários em português?</> },
+  ]}
+/>
+
+### 5.4 Reflexão
+
+<Reflexao
+  sprint={4}
+  lab="A"
+  pergunta="Por que detectar loop DENTRO do harness (código tradicional) é mais seguro do que pedir ao agente 'pare após 5 tentativas' no prompt? Conecte com prompt injection — o que um atacante poderia injetar para fazer o agente ignorar a instrução?"
+/>
+
+---
+
+## 6. Lab B — Approval Gate programático
+
+### 6.1 O que você vai conquistar
+
+Função `criarApprovalGate()` em `src/sprint4/approval.ts` que **pausa o agente** em ações de risco alto e espera webhook humano.
+
+### 6.2 O contrato
+
+<Diagrama legenda="Approval Gate: baixo=auto, médio=auto+log, alto=checkpoint + webhook out-of-band">
+{`flowchart TB
+    A[Agente propõe ação] --> B{Risco?}
+    B -->|baixo| C1[Auto-aprova]
+    B -->|médio| C2[Auto-aprova + LOGA]
+    B -->|alto| D[Salva checkpoint<br/>Pausa execução]
+    D --> E[Webhook humano<br/>out-of-band]
+    E -->|aprovado| F[Resume com aprovado:true]
+    E -->|rejeitado| G[Resume com aprovado:false]
+    D -.->|timeout| T[aprovado:false, motivo:timeout]`}
+</Diagrama>
+
+### 6.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab B — Approval Gate">
+{`Implementar src/sprint4/approval.ts (esqueleto + tipos prontos).
+
+criarApprovalGate(): ApprovalGate
+
+Comportamento de decidir(acao, timeoutMs=30000):
+- risco === "baixo" → return { aprovado:true, modo:"auto" } imediato + log
+- risco === "medio" → mesmo, mas registra no log de auditoria
+- risco === "alto" → 
+  1. Gera checkpoint id "alto-{contador++}"
+  2. Cria Promise que NÃO resolve sozinha
+  3. Arma setTimeout(timeoutMs) que rejeita com motivo "Timeout: ... (checkpoint:{id})"
+  4. Salva { resolve, timer } em Map<id, Checkpoint>
+  5. Retorna a promise (fica pendente)
+
+resolverExternamente(id, aprovar, motivo?):
+- Olha o Map, se id não existe: return
+- clearTimeout(cp.timer)
+- Chama cp.resolve com { aprovado: aprovar ? true : false, modo: "humano" } ou { aprovado:false, motivo }
+
+obterLog(): array de { timestamp, acao, decisao } — cópia (spread).
+
+Restrições:
+- TS estrito.
+- Closure (factory function).
+- Map para checkpoints.
+- Sem deps externas.
+- PT-BR nos comentários.
+
+Rode: npm test --silent -- tests/sprint4 -t "Lab B"`}
+</PedidoAoAgente>
+
+### 6.4 Sua checklist
+
+<Checklist
+  sprint={4}
+  lab="B"
+  itens={[
+    { id: "tres-niveis", texto: <>Trata os 3 níveis de risco DIFERENTE (baixo, médio, alto)?</> },
+    { id: "promise-pendente", texto: <>Risco alto retorna Promise que NÃO resolve imediata?</> },
+    { id: "checkpoint-id", texto: <>Gera ID único por checkpoint (contador incremental ou UUID)?</> },
+    { id: "timeout-funciona", texto: <>setTimeout rejeita corretamente após timeoutMs?</> },
+    { id: "clear-timer", texto: <>resolverExternamente faz <code>clearTimeout</code> antes de resolver?</> },
+    { id: "log-cópia", texto: <>obterLog retorna CÓPIA do array (não referência direta)?</> },
+  ]}
+/>
+
+### 6.5 Reflexão
+
+<Reflexao
+  sprint={4}
+  lab="B"
+  palavrasMin={150}
+  palavrasMax={250}
+  pergunta="Compare DUAS implementações: (1) agente pede aprovação escrevendo no chat 'Posso deletar?' (2) sistema intercepta deleteTable() programaticamente. Em qual cenário o agente CONSEGUE deletar sem aprovação? E em qual o operador esquecer de responder por 1 hora não causa dano? Explique o conceito de 'controle fora do loop do LLM'."
+/>
+
+---
+
+## 7. Lab C — Reflexão sobre memória (sem código)
+
+Lab leve. Sem implementação — só leitura + reflexão.
+
+### 7.1 Os 3 tipos de memória do agente (CoALA)
+
+| Tipo | O que guarda | Analogia humana |
+|---|---|---|
+| **Episódica** | "Em 24/05 às 14h, agente chamou API X que falhou com erro Y" | Diário pessoal |
+| **Semântica** | "API X expira tokens a cada 24h" (fato consolidado) | Conhecimento geral |
+| **Procedural** | "Como renovar token: chamar /refresh com X" (passo a passo) | Habilidade muscular |
+
+A maioria dos cursos enche o aluno de "vamos usar banco vetorial pra memória". Verdade contra-intuitiva: **nos primeiros 1.000 usuários, arquivos Markdown locais funcionam melhor** que banco vetorial. Anthropic provou isso com o agente que joga Pokémon — ele só lê e escreve em `PLAN.md` e `NOTES.md` no workspace, e sobreviveu 1.234 passos sequenciais sem amnésia.
+
+### 7.2 Reflexão
+
+<Reflexao
+  sprint={4}
+  lab="C"
+  pergunta="Por que arquivos Markdown locais (PLAN.md, NOTES.md) podem ser melhores que banco vetorial sofisticado nas primeiras fases? Considere: facilidade de inspeção humana, latência, custo, portabilidade entre máquinas. Quando passa a valer a pena ir pra banco vetorial?"
+/>
+
+---
+
+## 8. Lab D — Tríade RAG (avaliação semântica)
+
+### 8.1 O que você vai conquistar
+
+Função `avaliarRAG(caso)` em `src/sprint4/rag-eval.ts` que devolve 3 scores (0–1) para Context Relevance, Answer Relevance, Faithfulness.
+
+### 8.2 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab D — RAG Eval">
+{`Implementar src/sprint4/rag-eval.ts (esqueleto + tipos prontos).
+
+Sprint 4 usa HEURÍSTICAS (Jaccard de tokens), não LLM real (Sprint 5 troca).
+
+Helper tokens(s):
+- lowercase + remove pontuação + split em palavras + filtra length > 2
+- retorna Set<string>
+
+Helper jaccard(a, b):
+- |a ∩ b| / |a ∪ b|
+- Se ambos vazios: 1. Se um vazio: 0.
+
+avaliarRAG(c):
+- contextRelevance: média de jaccard(tokens(query), tokens(ctx)) * 2 (até 1)
+- answerRelevance: jaccard(tokens(query), tokens(resposta)) * 2 (até 1)
+- faithfulness: 1 - (tokens da resposta que NÃO estão em contexto NEM query) / total de tokens da resposta
+
+Arredondar todos a 3 casas.
+
+Restrições:
+- TS estrito.
+- Sem deps externas.
+- Comentários PT-BR.
+
+Rode: npm test --silent -- tests/sprint4 -t "Lab D"`}
+</PedidoAoAgente>
+
+### 8.3 Sua checklist
+
+<Checklist
+  sprint={4}
+  lab="D"
+  itens={[
+    { id: "tres-scores", texto: <>Retorna 3 scores distintos (contextRelevance, answerRelevance, faithfulness)?</> },
+    { id: "entre-0-1", texto: <>Todos os scores ficam entre 0 e 1 (verifique <code>Math.min</code> e <code>Math.max</code>)?</> },
+    { id: "alucinacao-baixa", texto: <>Resposta com fatos não-presentes nos contextos tem faithfulness baixo?</> },
+    { id: "tokenizer-filtra", texto: <>Tokenizer remove pontuação e ignora palavras muito curtas?</> },
+    { id: "arredondamento", texto: <>Scores arredondados a 3 casas (não float com 15 dígitos)?</> },
+    { id: "sem-deps", texto: <>Sem dependências externas (só funções nativas)?</> },
+  ]}
+/>
+
+### 8.4 Reflexão
+
+<Reflexao
+  sprint={4}
+  lab="D"
+  pergunta="Você pode ter Faithfulness=1.0 (não inventou nada) e Answer Relevance=0.1 (não respondeu a pergunta). Dê um exemplo concreto: pergunta + contextos + resposta onde isso aconteceria. E por que essas 2 métricas precisam ser SEPARADAS, não combinadas em uma só?"
+/>
+
+---
+
+## 9. Recapitulando o curso inteiro
+
+Você terminou um **harness completo de 4 camadas**:
+
+<Diagrama legenda="As 4 camadas do harness — completo, em produção, auditável">
+{`flowchart TB
+    subgraph S4["Sprint 4 — Inteligência defensiva"]
+        DH[DebounceHook]
+        AG[Approval Gate]
+        RAG[RAG Eval]
+    end
+    subgraph S3["Sprint 3 — Fluxo"]
+        R[Rules escopadas]
+        W[Webhook HMAC]
+        Q[Queue Retry]
+        D[Debouncer]
+    end
+    subgraph S2["Sprint 2 — Contrato"]
+        SC[Sprint Contract]
+        SM[State Machine]
+        ES[Event Store]
+    end
+    subgraph S1["Sprint 1 — Alicerce"]
+        H1[Hooks]
+        M[Motor]
+    end
+    S4 --> S3 --> S2 --> S1`}
+</Diagrama>
+
+Você saiu de **"peço pro Claude resolver"** para **"orquestro agente com governança formal, log imutável, fluxo resiliente e inteligência defensiva"**.
+
+---
+
+## 10. Avaliação Final
+
+<Terminal comando="npm test; npm run gate -- --sprint=4">
+{`Tests  53 passed (53)
+  8 Sprint 1 + 15 Sprint 2 + 17 Sprint 3 + 13 Sprint 4
+Resultado: 3/3 critérios.
+Nota: A`}
+</Terminal>
+
+Cole as 4 Reflexões (uma por Lab) no LLM-as-Judge — em **modelo diferente** do que encomendou o código.
+
+---
+
+## 11. Glossário deste Sprint
+
+| Termo | O que é (1 frase) |
+|---|---|
+| **Exact Repeat** | Loop onde agente repete chamada idêntica. Mais fácil de detectar. |
+| **Jitter Loop** | Loop com variação cosmética nos parâmetros. Hash exato não pega. |
+| **Stall Loop** | Agente "pensa" sem agir. Janela enche, ele reseta, repete. |
+| **DebounceHook** | Detector de Exact Repeats via fingerprint + janela deslizante. |
+| **Approval Gate** | Pausa programática para humano. NUNCA pede no chat. |
+| **Checkpoint** | Estado salvo do agente em risco alto, esperando resolução. |
+| **Tríade RAG** | 3 métricas: Context Relevance, Answer Relevance, Faithfulness. |
+| **Context Relevance** | Mede se contextos recuperados batem com a query. |
+| **Answer Relevance** | Mede se a resposta de fato responde a query. |
+| **Faithfulness** | Mede se a resposta usa SÓ os contextos (sem alucinar). |
+| **CoALA Memory** | Episódica, Semântica, Procedural — 3 tipos de memória agêntica. |
+| **Memory as Documentation** | Persistir estado em PLAN.md / NOTES.md em vez de banco vetorial. |
+| **Watchdog Agent** | LLM secundário (barato) que monitora o LLM principal — detecta loops. |
+
+Para definições completas, abra o [Glossário](/glossario).
+
+---
+
+## 12. E agora?
+
+Você tem **40h de curso, 4 Sprints, 1 harness completo**, 53 testes verdes.
+
+Esse harness **roda no seu computador agora**. O próximo passo é:
+1. **Aplicar em projeto real** — pegue seu próximo agente de produção e plugue esse harness.
+2. **Compartilhar** — fork no GitHub, mostre seu Sprint 4 com Nota A.
+3. **Estender** — Sprint 5+ aparece em futuras versões do curso (Symphony, A2A, Workers concorrentes em produção).
+
+> Você não é mais vibecoder. Você é **arquiteto de agentes**. Foi um prazer. 🟣

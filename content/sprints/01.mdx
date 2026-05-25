@@ -1,0 +1,643 @@
+export const metadata = {
+  titulo: "Sprint 1 — Alicerce",
+  subtitulo: "O Cinto de Segurança do Agente",
+  duracao: "10 horas",
+};
+
+# Sprint 1 — Alicerce
+## O Cinto de Segurança do Agente
+
+<Aviso variante="info" titulo="Informações deste Sprint">
+**Duração estimada:** 10 horas.
+**Entregável:** repositório com 3 hooks funcionando + motor de decisão validado.
+**Aprovação:** rubrica Grade A–D. Mínimo **B**.
+</Aviso>
+
+<Aviso variante="atencao" titulo="Antes de começar — instale o ambiente">
+Se ainda não fez o setup, vá na página **[Começar](/comecar)** primeiro:
+instalar Node, clonar `learning-harness` do GitHub, rodar `npm install`.
+
+Leva ~10 minutos. Você não precisa entender o que cada comando faz — só seguir.
+</Aviso>
+
+---
+
+## 0. Antes de começar — leia isto
+
+Você já mandou um agente fazer alguma coisa e ele fez **errado de um jeito que deu prejuízo**? Apagou arquivo, alterou banco, rodou comando perigoso, criou bug silencioso?
+
+Esse Sprint resolve esse problema na raiz.
+
+**A grande virada de chave:** você vai parar de pensar no <Termo k="agente">agente</Termo> como "o cara que faz" e começar a pensar nele como "o cara que **propõe**". Quem faz é outra coisa — uma camada <Termo k="deterministico">determinística</Termo> que **você controla**, que **você lê**, que **nunca alucina**.
+
+Essa camada se chama <Termo k="harness">harness</Termo>. É o cinto de segurança do agente.
+
+<Diagrama legenda="Fluxo básico do harness — o agente nunca toca no sistema direto">
+{`flowchart LR
+    A[Você] -->|pede algo| B[Agente LLM]
+    B -->|propõe ação| C{Harness}
+    C -->|libera| D[Sistema Operacional]
+    C -->|bloqueia| E[Devolve erro ao agente]
+    E -.->|re-tenta| B`}
+</Diagrama>
+
+No fim do Sprint 1, esse diagrama acima estará **funcionando no seu computador**.
+
+---
+
+## 0.1 Como este curso funciona — leia ANTES de tudo
+
+Você é o **<Termo k="arquiteto">arquiteto</Termo>**. Seu agente (Claude ou Gemini) é o **<Termo k="pedreiro">pedreiro</Termo>**. O harness é o **<Termo k="fiscal">fiscal</Termo>**.
+
+| Papel | Quem | O que faz |
+|---|---|---|
+| 🏛️ Arquiteto | **Você** | Lê, especifica, encomenda, inspeciona, decide. |
+| 🧱 Pedreiro | Seu Claude/Gemini | Recebe pedido, escreve o código, reporta. |
+| 👮 Fiscal | Harness + <Termo k="learning-gate">Learning Gate</Termo> | Valida deterministicamente se o trabalho está OK. |
+
+**Você nunca vai digitar código.** Você vai:
+1. Ler o conceito do <Termo k="spec-manual">Spec Manual</Termo>.
+2. Copiar um **template de pedido** que o Manual te dá pronto.
+3. Colar no seu Claude/Gemini.
+4. Quando ele devolver, **abrir o arquivo no editor** e percorrer uma **<Termo k="checklist">checklist</Termo>** (sem precisar entender cada linha — só verificar pontos específicos).
+5. Se a checklist falhar, devolver ao agente com instruções precisas que o Manual também te dá.
+6. Quando passar na checklist, rodar o **Fiscal** (`npm run gate`).
+7. Escrever uma **<Termo k="reflexao">Reflexão</Termo>** curta sobre por que o que você acabou de construir importa.
+
+<Aviso variante="dica" titulo="Por que isso funciona">
+Isso é meta. **O que você aprende no curso (orquestrar agentes) é exatamente o que você FAZ durante o curso.**
+</Aviso>
+
+<Diagrama legenda="Ciclo de trabalho em cada Lab">
+{`flowchart LR
+    A[1. Você lê o conceito] --> B[2. Você cola o pedido no agente]
+    B --> C[3. Agente escreve o código]
+    C --> D[4. Você inspeciona com checklist]
+    D -->|falhou| E[5. Você devolve com correção]
+    E --> C
+    D -->|passou| F[6. Você roda o Fiscal]
+    F -->|✗| E
+    F -->|✓| G[7. Você escreve a Reflexão]`}
+</Diagrama>
+
+---
+
+## 1. Os 3 conceitos-âncora
+
+### 1.1 Vibe coding vs Engenharia de Harness
+
+| <Termo k="vibe-coding">Vibe coding</Termo> | Engenharia de Harness |
+|---|---|
+| "Vai lá, faz aí." | "Você propõe, eu valido." |
+| Quando dá errado, você re-prompta. | Quando dá errado, você aperta uma regra. |
+| O agente é a estrela. | O agente é um motor. A estrela é o harness. |
+| Funciona em demo, falha em produção. | Funciona em produção exatamente como funcionou no teste. |
+
+<Aviso variante="dica" titulo="A frase que você vai repetir até dormir">
+**"Cada erro do agente é uma falha de design do MEU harness, não do modelo."**
+</Aviso>
+
+### 1.2 Por que o agente fica "burro" no meio da conversa
+
+Você já notou que depois de muita troca de mensagem, o agente começa a esquecer regras, repetir bobagens, ou ignorar coisas que você disse no começo?
+
+Isso tem nome técnico: <Termo k="context-rot">Context Rot</Termo>.
+
+Sem entrar em matemática: o <Termo k="llm">LLM</Termo> tem uma "janela de atenção". Ele lembra muito bem do **começo** e do **fim** dessa janela, e esquece o **meio**. Esse efeito se chama <Termo k="lost-in-the-middle">"Lost in the Middle"</Termo>.
+
+<Diagrama legenda="O LLM presta atenção nas pontas, esquece o meio">
+{`flowchart LR
+    subgraph Janela["Janela de atenção"]
+        A["Começo<br/>👁️ atenção alta"] --> M["Meio<br/>😵 atenção baixa"] --> F["Fim<br/>👁️ atenção alta"]
+    end`}
+</Diagrama>
+
+**O que isso muda no que você faz como arquiteto:**
+- Regras críticas vão em **<Termo k="claude-md">CLAUDE.md</Termo>** (no começo) ou em **<Termo k="hook">hooks</Termo>** (fora do contexto do agente).
+- Conversas longas → **resumir e reiniciar** (vamos ensinar no Sprint 4).
+- Não jogue 90 mil tokens de documentação no prompt do agente achando que ele vai "ler tudo".
+
+### 1.3 Tools, Skills e MCP — a confusão que custa caro
+
+Você vai ouvir esses três termos o tempo todo. Não confunda:
+
+| Termo | Analogia | É |
+|---|---|---|
+| **<Termo k="tool">Tool</Termo>** | Chave de fenda | Uma função atômica. Faz UMA coisa. |
+| **<Termo k="skill">Skill</Termo>** | Receita de bolo | Combina várias tools numa ordem certa. |
+| **<Termo k="mcp">MCP</Termo>** | Padrão USB-C | Protocolo aberto que conecta agentes a ferramentas. |
+
+---
+
+## 2. O Modelo Mental Central: <Termo k="proposal-engine">Proposal Engine</Termo>
+
+<Diagrama legenda="Sequência completa: usuário, agente, harness, sistema">
+{`sequenceDiagram
+    participant U as Usuário
+    participant A as Agente (LLM)
+    participant H as Harness (você projetou)
+    participant S as Sistema
+
+    U->>A: "Apague os logs antigos"
+    A->>H: Proposta: rm -rf /var/log
+    H->>H: Verifica regras determinísticas
+    H-->>A: BLOQUEADO — motivo: rm -rf fora de scope
+    A->>H: Proposta: find /tmp/logs -mtime +30 -delete
+    H->>H: Verifica
+    H->>S: Executa
+    S-->>H: OK, 47 arquivos apagados
+    H-->>A: Resultado: 47 arquivos
+    A-->>U: "Apaguei 47 arquivos antigos."`}
+</Diagrama>
+
+**O agente nunca toca no sistema diretamente.** Sempre passa pelo Harness. O Harness usa regras escritas em **código tradicional**, sem IA. Determinístico. Auditável.
+
+<Aviso variante="sucesso" titulo="Por que isso funciona">
+O LLM é probabilístico (pode errar). O Harness é determinístico (sempre faz a mesma coisa para a mesma entrada). Misturar os dois te dá **inteligência do LLM + segurança da programação clássica**.
+</Aviso>
+
+---
+
+## 3. Os 3 arquivos que governam tudo
+
+Antes de encomendar qualquer coisa, você precisa conhecer os 3 arquivos que **todo** agente moderno lê automaticamente:
+
+### 3.1 `CLAUDE.md`
+Regras **globais** do projeto. Lido em **toda** sessão. Limite: **200 linhas** (acima disso, o agente atinge a "Dumb Zone" — perda de aderência).
+
+### 3.2 `AGENTS.md`
+Padrão aberto. Contrato em 3 níveis:
+- **SEMPRE** — o que o agente deve fazer obrigatoriamente.
+- **PERGUNTAR PRIMEIRO** — o que exige sua aprovação.
+- **NUNCA** — limites absolutos.
+
+### 3.3 `.claude/settings.json`
+Aponta os **hooks** (scripts) que vão interceptar o agente.
+
+<Aviso variante="info">
+Esses 3 arquivos **já estão** no seu repo, pré-preenchidos. Abra e leia agora (você não precisa entender cada linha — só ter familiaridade com a estrutura). Eles são a "constituição" do harness.
+</Aviso>
+
+---
+
+<PTP
+  numero={1}
+  titulo="Identifique o anti-padrão"
+  tempoEstimado="15 min"
+  questoes={[
+    {
+      pergunta: <><strong>Trecho A — arquivo CLAUDE.md de um projeto real:</strong><br/><code>Quando for renderizar componentes React, sempre use TailwindCSS v4 com Material UI v5 e Bootstrap 5 para os botões. Cores: paleta Material Design 3 expandida com tokens... [continua por 600 linhas]</code></>,
+      opcoes: [
+        { id: "a", texto: "Attention Decay — CLAUDE.md longo demais dilui a atenção do modelo.", correta: true },
+        { id: "b", texto: "Vague Semantics — descrição é vaga demais." },
+        { id: "c", texto: "Está perfeito." },
+      ],
+      resposta: <>CLAUDE.md de 600 linhas dilui a atenção do modelo; regras importantes desaparecem no meio. Limite recomendado: <strong>200 linhas</strong>.</>
+    },
+    {
+      pergunta: <><strong>Trecho B — descrição de uma Skill:</strong><br/><code>name: deploy-helper<br/>description: usa essa skill para quando quiser deployar coisas em produção</code></>,
+      opcoes: [
+        { id: "a", texto: "Attention Decay." },
+        { id: "b", texto: "Vague Semantics — descrição genérica demais; agente vai disparar errado.", correta: true },
+        { id: "c", texto: "Está perfeito." },
+      ],
+      resposta: <>O agente seleciona <Termo k="skill">skills</Termo> baseado na descrição. "Para quando quiser deployar coisas em produção" é genérico — vai disparar em casos errados.</>
+    },
+    {
+      pergunta: <><strong>Trecho C — hook que tenta bloquear:</strong><br/><code>SE comando = "rm -rf /": manda webhook + retorna HTTP 403</code></>,
+      opcoes: [
+        { id: "a", texto: "HTTP Status Confusion — 403 não bloqueia; harness interpreta como erro de rede.", correta: true },
+        { id: "b", texto: "Está perfeito." },
+        { id: "c", texto: "Falta autenticação no webhook." },
+      ],
+      resposta: <>Códigos HTTP 4xx/5xx são interpretados como <strong>falha de rede</strong>, não como decisão de negar. Para bloquear via webhook: responder <code>200 OK</code> com JSON contendo <code>permissionDecision: "deny"</code>. Para bloquear via hook local: <code>exit 2</code>.</>
+    },
+  ]}
+/>
+
+---
+
+## 5. Lab A — Seu primeiro Hook: bloqueio de comandos destrutivos
+
+<Aviso variante="info">
+**O que você vai conquistar:** seu repositório terá um Hook em `.claude/hooks/01-bloqueia-comandos-destrutivos.mjs` que IMPEDE qualquer agente de rodar `rm -rf /` ou `sudo`.
+**Você não vai escrever este Hook.** Você vai encomendar ao seu agente e validar.
+</Aviso>
+
+### 5.1 Por que isto importa
+
+O LLM é probabilístico. Em algum momento ele vai tentar fazer algo perigoso — porque alguém injetou um prompt malicioso (<Termo k="prompt-injection">prompt injection</Termo>), porque ele alucinou, porque entendeu errado. Sem este Hook, ele consegue. Com este Hook, **o sistema operacional NUNCA vai sequer receber o comando perigoso.**
+
+### 5.2 O contrato do Hook
+
+<Diagrama legenda="Fluxo do Hook 01: bloqueia padrões perigosos antes de chegar ao sistema">
+{`flowchart LR
+  A[Agente quer rodar comando] --> H{Hook 01}
+  H -->|bate com padrão proibido| B[BLOQUEIA<br/>devolve 'deny' ao agente]
+  H -->|tudo limpo| L[LIBERA<br/>sistema executa]`}
+</Diagrama>
+
+**Padrões que o Hook PRECISA reconhecer e bloquear:**
+1. `rm -rf` seguido de qualquer caminho absoluto (`/`, `/tmp`, `/etc`, ...)
+2. Qualquer uso de `sudo`
+3. Redirecionamento (`>`) escrevendo em `/etc/` ou `~/.ssh/`
+
+**Padrões que NÃO podem ser bloqueados** (senão a vida do agente vira inferno):
+1. `ls`, `cat`, `git status` e similares
+2. `rm node_modules/foo.js` (caminho relativo, sem `-rf` em raiz)
+
+### 5.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab A — encomenda do Hook 01">
+{`Você está trabalhando no repositório learning-harness em D:\\Workout\\Estudo\\Harness\\learning-harness.
+Leia primeiro o arquivo CLAUDE.md para entender as regras do projeto e o seu papel.
+
+Tarefa: implementar o arquivo .claude/hooks/01-bloqueia-comandos-destrutivos.mjs
+
+Requisitos do contrato:
+- Hook em Node.js puro (.mjs), sem dependências externas além de node:process.
+- Lê payload JSON pelo stdin (use process.stdin com for await).
+- Extrai .tool_input.command com JSON.parse.
+- Bloqueia (process.exit(2) + JSON com permissionDecision "deny") se o comando bater com algum destes padrões:
+    * rm -rf em caminho absoluto (começa com /)
+    * sudo (qualquer ocorrência)
+    * redirecionamento (>) para /etc/ ou ~/.ssh/
+- Caso contrário: libera (process.exit(0) + JSON com permissionDecision "allow").
+- Comentários em português.
+- Sem any, sem eslint-disable, sem @ts-ignore.
+- Tamanho-alvo: entre 40 e 80 linhas.
+
+Quando terminar, rode no terminal: npm run gate -- --sprint=1
+E me reporte LITERALMENTE a saída que apareceu (não resuma).`}
+</PedidoAoAgente>
+
+### 5.4 Sua checklist de inspeção
+
+Abra o arquivo `.claude/hooks/01-bloqueia-comandos-destrutivos.mjs` no editor e confirme com seus olhos:
+
+<Checklist
+  sprint={1}
+  lab="A"
+  itens={[
+    { id: "exit2", texto: <>Existem <strong>duas</strong> chamadas distintas a <code>process.exit</code>: uma com <code>2</code> (bloquear) e uma com <code>0</code> (liberar)?</> },
+    { id: "padroes", texto: <>Existe uma lista com pelo menos <strong>3 padrões</strong> cobrindo rm -rf, sudo e redirecionamento?</> },
+    { id: "comentario-pt", texto: <>O comentário do topo está em <strong>português</strong>?</> },
+    { id: "sem-any", texto: <>Não tem <code>any</code>, <code>eslint-disable</code>, <code>@ts-ignore</code>?</> },
+    { id: "tamanho", texto: <>O arquivo tem entre <strong>40 e 80 linhas</strong>?</> },
+  ]}
+/>
+
+<Aviso variante="atencao">
+Se alguma resposta for "não", **devolva ao agente** com a mensagem:
+*"Item X da minha checklist não foi atendido: [descreva o que viu]. Corrija e me devolva o arquivo completo, sem omitir partes."*
+</Aviso>
+
+### 5.5 O Fiscal valida
+
+Quando sua checklist estiver toda ✓, rode no PowerShell:
+
+<Terminal comando="cd D:\Workout\Estudo\Harness\learning-harness; npm run gate -- --sprint=1">
+{`✓ [CRITICO] Hook 01 bloqueia 'rm -rf /'
+✓ [CRITICO] Hook 01 bloqueia 'sudo'
+✓ [ALTO]    Hook 01 libera comando seguro`}
+</Terminal>
+
+<Aviso variante="atencao" titulo="Se algum aparece ✗">
+O agente errou em algo que sua checklist não pegou. Devolva ao agente:
+*"O Gate disse que o critério X falhou. Reveja a parte que trata de Y. Me devolva o arquivo corrigido inteiro."*
+</Aviso>
+
+### 5.6 Reflexão
+
+<Reflexao
+  sprint={1}
+  lab="A"
+  pergunta="Por que este Hook não pode ser substituído por uma instrução no CLAUDE.md tipo 'nunca rode rm -rf'? O que muda quando a regra está num arquivo de código (que o sistema executa) versus numa instrução em linguagem natural (que o modelo lê)?"
+/>
+
+---
+
+## 6. Lab B — Hook que bloqueia evasão de testes
+
+<Aviso variante="info">
+**O que você vai conquistar:** Hook em `.claude/hooks/02-bloqueia-skip-de-testes.mjs` que impede qualquer agente de "fazer parecer pronto" comentando ou pulando testes que estão quebrando.
+</Aviso>
+
+### 6.1 Por que isto importa
+
+O LLM tem viés de **fechar a tarefa**. Se um teste está vermelho, ele pode "resolver" comentando o teste ou adicionando `.skip`. Isso se chama <Termo k="pass-by-deletion">Pass-by-Deletion</Termo>.
+
+Você descobre o problema só semanas depois, em produção, com o cliente reclamando.
+
+### 6.2 O contrato
+
+<Diagrama legenda="Hook 02 só age em arquivos de teste — fora deles libera direto">
+{`flowchart LR
+  A[Agente quer editar arquivo] --> Q{É arquivo de teste?}
+  Q -->|não| L1[LIBERA — não é assunto deste hook]
+  Q -->|sim| P{Conteúdo introduz<br/>.skip / .only / xit?}
+  P -->|sim| B[BLOQUEIA — Pass-by-Deletion]
+  P -->|não| L2[LIBERA]`}
+</Diagrama>
+
+### 6.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab B — encomenda do Hook 02">
+{`Mesmo repositório learning-harness. Leia o CLAUDE.md de novo se precisar.
+
+Tarefa: implementar o arquivo .claude/hooks/02-bloqueia-skip-de-testes.mjs
+
+Requisitos do contrato:
+- Hook Node.js puro (.mjs), só usa node:process.
+- Lê payload JSON pelo stdin.
+- Extrai .tool_input.file_path e .tool_input.content.
+- Só age se file_path bater com (\\.test\\.|\\.spec\\.|^tests/|/tests/). Fora desse escopo, libera direto.
+- Dentro do escopo, BLOQUEIA (exit 2 + JSON deny) se o content novo contiver:
+    .skip(   .only(   xit(   xdescribe(
+    // it(   // describe(   // test(   (linhas comentadas)
+    /* it(  /* describe(  /* test(   (blocos comentados)
+    # pytest.mark.skip
+- Caso contrário: libera (exit 0 + JSON allow).
+- Comentários em português. Sem any.
+- Tamanho-alvo: entre 50 e 90 linhas.
+
+Quando terminar, rode npm run gate -- --sprint=1 e me reporte a saída literal.`}
+</PedidoAoAgente>
+
+### 6.4 Sua checklist de inspeção
+
+<Checklist
+  sprint={1}
+  lab="B"
+  itens={[
+    { id: "stdin-parse", texto: <>O arquivo abre o stdin com <code>for await</code> e parseia com <code>JSON.parse</code>?</> },
+    { id: "escopo", texto: <>Existe condição que só ativa quando <code>file_path</code> bate com teste?</> },
+    { id: "regex", texto: <>Existe regex listando pelo menos <code>.skip(</code>, <code>.only(</code>, <code>xit(</code>?</> },
+    { id: "deny-exit2", texto: <>Quando bloqueia: <code>process.exit(2)</code> + JSON com <code>"deny"</code>?</> },
+    { id: "allow-exit0", texto: <>Quando libera: <code>process.exit(0)</code> + JSON com <code>"allow"</code>?</> },
+    { id: "comentario-pt", texto: <>Comentário do topo em português?</> },
+  ]}
+/>
+
+### 6.5 O Fiscal valida
+
+<Terminal comando="npm run gate -- --sprint=1">
+{`✓ [CRITICO] Hook 02 bloqueia '.skip' em teste
+✓ [ALTO]    Hook 02 bloqueia '.only' em teste`}
+</Terminal>
+
+### 6.6 Reflexão
+
+<Reflexao
+  sprint={1}
+  lab="B"
+  pergunta="Por que este Hook só age em arquivos de teste? O que aconteceria se ele rodasse em TODOS os arquivos do projeto? Dê um exemplo concreto de problema que isso causaria."
+/>
+
+---
+
+## 7. Lab C — Sensor de typecheck
+
+<Aviso variante="info">
+**O que você vai conquistar:** Hook em `.claude/hooks/03-typecheck-pos-edicao.mjs` que **avisa** (sem bloquear) o agente quando ele introduz erro de tipo.
+</Aviso>
+
+### 7.1 Diferença crucial: Guard vs Sensor
+
+|  | <Termo k="guard">Guard</Termo> (Hooks 01, 02) | <Termo k="sensor">Sensor</Termo> (Hook 03) |
+|---|---|---|
+| Quando dispara | **Antes** da ação | **Depois** da ação |
+| Exit code | `process.exit(2)` (bloqueia) | `process.exit(0)` (nunca bloqueia) |
+| O que faz | Impede execução | Reinjeta erro no contexto do agente |
+| Analogia | Mordomo que barra na porta | Espelho que mostra mancha de café |
+
+### 7.2 O contrato
+
+<Diagrama legenda="Hook 03 — sensor: sempre exit 0, escreve no stdout para o agente">
+{`flowchart LR
+  A[Agente edita arquivo] --> Q{Termina em .ts?}
+  Q -->|não| F1[exit 0 silencioso]
+  Q -->|sim| T[Roda npm run typecheck]
+  T -->|sem erro| F2[exit 0 silencioso<br/>sucesso é silencioso]
+  T -->|com erro| W[Escreve erro no stdout<br/>com instrução em PT-BR<br/>+ exit 0 mesmo assim]`}
+</Diagrama>
+
+### 7.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab C — encomenda do Hook 03 (SENSOR)">
+{`Mesmo repositório. Implemente .claude/hooks/03-typecheck-pos-edicao.mjs.
+
+Requisitos:
+- Hook Node.js puro (.mjs).
+- Lê payload JSON pelo stdin.
+- Extrai .tool_input.file_path.
+- Se NÃO terminar em .ts, sai com exit 0 sem fazer mais nada.
+- Se terminar em .ts, roda execSync("npm run typecheck --silent", { stdio: "pipe" }).
+- Se o typecheck passar: exit 0 sem imprimir nada (sucesso silencioso).
+- Se o typecheck falhar:
+    - Captura stdout+stderr do erro.
+    - Imprime no process.stdout uma mensagem em PT-BR começando com "SENSOR_TYPECHECK_FALHOU:" seguida do arquivo afetado e do erro.
+    - SEMPRE termina com exit 0 (este é um SENSOR, NUNCA bloqueia).
+- Comentários em português.
+- Tamanho-alvo: 30 a 60 linhas.
+
+Rode npm run gate -- --sprint=1 e reporte a saída.`}
+</PedidoAoAgente>
+
+### 7.4 Sua checklist de inspeção
+
+<Checklist
+  sprint={1}
+  lab="C"
+  itens={[
+    { id: "todos-exit0", texto: <><strong>TODOS</strong> os caminhos de saída terminam com <code>process.exit(0)</code>?</> },
+    { id: "sem-exit2", texto: <>NÃO tem <code>process.exit(2)</code> em lugar nenhum?</> },
+    { id: "filtro-ts", texto: <>Existe <code>if</code> que verifica se o arquivo termina em <code>.ts</code> antes de rodar typecheck?</> },
+    { id: "stdout-arquivo", texto: <>Quando typecheck falha, há <code>process.stdout.write</code> incluindo o nome do arquivo?</> },
+    { id: "comentario-pt", texto: <>Comentário em português?</> },
+  ]}
+/>
+
+### 7.5 Reflexão
+
+<Reflexao
+  sprint={1}
+  lab="C"
+  pergunta="Por que um Sensor nunca bloqueia, mesmo quando detecta erro? Qual seria o problema se este Hook 03 fosse implementado como exit 2 quando typecheck falhasse?"
+/>
+
+---
+
+<PTP
+  numero={3}
+  titulo="Diferencie Guard de Sensor"
+  tempoEstimado="5 min"
+  questoes={[
+    {
+      pergunta: <>Hook que verifica se a <strong>senha do banco está em texto puro</strong> no código antes de salvar.</>,
+      opcoes: [
+        { id: "g", texto: "Guard (bloqueia)", correta: true },
+        { id: "s", texto: "Sensor (avisa)" },
+      ],
+      resposta: <>Vazamento de senha é <strong>irreversível</strong> — uma vez no git, está vazado. Bloqueia.</>
+    },
+    {
+      pergunta: <>Hook que <strong>roda o linter</strong> após cada edição.</>,
+      opcoes: [
+        { id: "g", texto: "Guard (bloqueia)" },
+        { id: "s", texto: "Sensor (avisa)", correta: true },
+      ],
+      resposta: <>Lint é estilo — não irreversível. Avisa para o agente corrigir.</>
+    },
+    {
+      pergunta: <>Hook que checa se o agente está tentando rodar <code>git push --force</code> em <code>main</code>.</>,
+      opcoes: [
+        { id: "g", texto: "Guard (bloqueia)", correta: true },
+        { id: "s", texto: "Sensor (avisa)" },
+      ],
+      resposta: <>Force push em main reescreve histórico de outras pessoas — <strong>irreversível</strong>. Bloqueia.</>
+    },
+  ]}
+/>
+
+<Aviso variante="dica" titulo="Regra de ouro">
+**Se a consequência for irreversível, é Guard. Se for informativa, é Sensor.**
+</Aviso>
+
+---
+
+## 9. Lab D — O Motor Determinístico em código
+
+<Aviso variante="info">
+**O que você vai conquistar:** os arquivos `src/sprint1/agente.ts` e `src/sprint1/motor.ts` funcionando, com 8 testes automatizados em verde.
+</Aviso>
+
+### 9.1 Por que isto importa
+
+Hooks vivem **fora** do código do seu app — interceptam o agente que está te ajudando a desenvolver. Mas o seu **app em produção** também terá um agente, e ele também precisa de freios. Esses freios vivem **dentro do código do app**, e o padrão é o mesmo: o agente PROPÕE, o motor DECIDE.
+
+### 9.2 O contrato
+
+<Diagrama legenda="Motor de Decisão dentro do app em produção">
+{`flowchart TB
+    A[Sua app chama o agente] --> B[Agente gera Proposta<br/>tipo, parâmetros, risco]
+    B --> C{motor.avaliarProposta}
+    C -->|regra bate| BL[Devolve 'bloqueado'<br/>com motivo]
+    C -->|tudo limpo| EX[Devolve 'executado'<br/>SIMULADO no Sprint 1]`}
+</Diagrama>
+
+### 9.3 Seu pedido ao agente
+
+<PedidoAoAgente titulo="Lab D — encomenda do Motor (agente.ts + motor.ts)">
+{`Mesmo repositório learning-harness.
+
+Tarefa: implementar duas funções nos arquivos abaixo, fazendo passar os testes em tests/sprint1/motor.test.ts.
+
+Arquivo 1: src/sprint1/agente.ts
+- Função proporAcao(intencao: string, acao: Acao): Proposta
+    - Devolve um objeto { intencao, acao, riscoEstimado }.
+    - riscoEstimado:
+        - "baixo" se for ler_arquivo
+        - "alto" se for rodar_comando contendo rm, sudo, chmod, chown, mkfs, dd, ou >
+        - "baixo" para outros rodar_comando
+        - "medio" para escrever_arquivo
+- Função executarSeAprovado(proposta: Proposta): Promise<Decisao>
+    - Apenas delega para avaliarProposta do motor. Sem lógica própria.
+
+Arquivo 2: src/sprint1/motor.ts
+- Função avaliarProposta(proposta: Proposta): Decisao
+    - Para rodar_comando: testa cada regex de COMANDOS_PROIBIDOS contra acao.comando. Se bate, devolve { resultado: "bloqueado", motivo: "..." }.
+    - Para escrever_arquivo: testa cada regex de CAMINHOS_PROIBIDOS_ESCRITA contra acao.caminho. Se bate, bloqueia.
+    - Se nada bate, devolve { resultado: "executado", saida: "[SIMULADO] ..." }.
+
+Restrições:
+- TypeScript estrito. Sem any, sem @ts-ignore.
+- As listas COMANDOS_PROIBIDOS e CAMINHOS_PROIBIDOS_ESCRITA já existem em motor.ts — USE-AS, não recrie.
+- Comentários em português.
+
+Quando terminar, rode:
+  npm test
+  npm run gate -- --sprint=1
+Reporte as duas saídas literais.`}
+</PedidoAoAgente>
+
+### 9.4 Sua checklist
+
+<Checklist
+  sprint={1}
+  lab="D"
+  itens={[
+    { id: "import-motor", texto: <><code>agente.ts</code> importa <code>avaliarProposta</code> de <code>./motor.js</code>?</> },
+    { id: "campos-proposta", texto: <><code>proporAcao</code> retorna objeto com 3 campos: <code>intencao</code>, <code>acao</code>, <code>riscoEstimado</code>?</> },
+    { id: "delega-motor", texto: <><code>executarSeAprovado</code> chama <code>avaliarProposta</code> e devolve o resultado?</> },
+    { id: "usa-listas", texto: <><code>motor.ts</code> itera as listas existentes (não recriou novas)?</> },
+    { id: "sem-any", texto: <>Nenhum dos arquivos tem <code>any</code>, <code>@ts-ignore</code>, <code>eslint-disable</code>?</> },
+    { id: "comentario-pt", texto: <>Comentários em português?</> },
+  ]}
+/>
+
+### 9.5 O Fiscal valida
+
+<Terminal comando="npm test; npm run gate -- --sprint=1">
+{`Tests  8 passed (8)
+...
+Resultado: 10/10 critérios.
+Nota: A
+
+🏆 Excelente. Avance para o próximo Sprint.`}
+</Terminal>
+
+### 9.6 Reflexão
+
+<Reflexao
+  sprint={1}
+  lab="D"
+  palavrasMin={150}
+  palavrasMax={250}
+  pergunta="Por que o motor NÃO usa um LLM para validar as propostas? Imagine alguém implementando assim: async function avaliarProposta(p) { const julgamento = await llm.perguntar('Esta ação é segura? ' + JSON.stringify(p)); if (julgamento.includes('sim')) return executar(p); return { resultado: 'bloqueado', motivo: julgamento }; }. Liste 3 problemas concretos desse desenho. Use os conceitos de prompt injection, custo de tokens, e determinismo."
+/>
+
+---
+
+## 10. Recapitulando — o que você acabou de orquestrar
+
+<Diagrama legenda="O harness shell completo do Sprint 1 — tudo encomendado pelo arquiteto">
+{`flowchart TB
+    subgraph Repo["learning-harness/"]
+        direction TB
+        CL[CLAUDE.md<br/>regras globais]
+        AG[AGENTS.md<br/>contrato]
+
+        subgraph Hooks[".claude/hooks/"]
+            H1[01 — bloqueia comandos<br/>GUARD]
+            H2[02 — bloqueia skip de testes<br/>GUARD]
+            H3[03 — sensor typecheck<br/>SENSOR]
+        end
+
+        subgraph Codigo["src/sprint1/"]
+            AG2[agente.ts<br/>propõe]
+            MO[motor.ts<br/>decide]
+        end
+    end
+
+    Aluno[Você<br/>🏛️ arquiteto] -.->|encomendou| Agente[Seu Claude/Gemini<br/>🧱 pedreiro]
+    Agente -->|escreveu| H1
+    Agente -->|escreveu| H2
+    Agente -->|escreveu| H3
+    Agente -->|escreveu| AG2
+    Agente -->|escreveu| MO
+    Fiscal[Learning Gate<br/>👮 fiscal] -.->|validou| Hooks
+    Fiscal -.->|validou| Codigo`}
+</Diagrama>
+
+Você acabou de:
+- ✅ Definir uma **constituição** (CLAUDE.md + AGENTS.md) que todo agente respeita.
+- ✅ Encomendar **três barreiras determinísticas** que interceptam ações perigosas antes delas acontecerem.
+- ✅ Encomendar um **motor de decisão** que separa proposta de execução.
+- ✅ Inspecionar e aprovar tudo sem digitar uma linha de TypeScript.
+
+Isso é o **harness shell**. Toda camada que você vai construir nos próximos Sprints **assenta em cima disto**.
+
+<Aviso variante="sucesso" titulo="Parabéns. Você acabou de sair do vibe coding.">
+Você não virou programador. Você virou **arquiteto de agentes** — que é uma coisa diferente, e mais rara, e mais valiosa.
+</Aviso>
